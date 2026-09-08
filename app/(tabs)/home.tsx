@@ -1,0 +1,206 @@
+// app/(tabs)/home.tsx
+// Home Tab: active baskets, quick-action chips, floating "Create Food
+// Basket Split" button, and text-code lookup search bar.
+
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Plus, Search, ScanLine, Users2, ShoppingBasket } from 'lucide-react-native';
+import { createStyles } from '../../theme/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { useSplit } from '../../context/SplitContext';
+import SplitEngineModal from '../../components/split-engine/SplitEngineModal';
+import { Basket } from '../../types';
+
+const useStyles = createStyles((theme) =>
+  StyleSheet.create({
+    flex: { flex: 1, backgroundColor: theme.colors.background },
+    header: { paddingHorizontal: theme.spacing(5), paddingTop: theme.spacing(4) },
+    greeting: { fontSize: 13, color: theme.colors.textMuted },
+    name: { fontSize: 22, fontWeight: '800', color: theme.colors.text, marginTop: 2 },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: theme.spacing(4),
+      marginTop: theme.spacing(5),
+    },
+    searchInput: { flex: 1, paddingVertical: theme.spacing(3), marginLeft: theme.spacing(2), color: theme.colors.text },
+    chipsRow: { flexDirection: 'row', gap: theme.spacing(2), marginTop: theme.spacing(5) },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: theme.spacing(4),
+      paddingVertical: theme.spacing(2.5),
+    },
+    chipText: { fontSize: 12, fontWeight: '600', color: theme.colors.text },
+    sectionTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: theme.colors.text,
+      marginTop: theme.spacing(7),
+      marginBottom: theme.spacing(3),
+      paddingHorizontal: theme.spacing(5),
+    },
+    basketCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: theme.spacing(4),
+      marginHorizontal: theme.spacing(5),
+      marginBottom: theme.spacing(3),
+    },
+    basketTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    basketTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, flex: 1, marginRight: 8 },
+    statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.pill },
+    statusPillText: { fontSize: 11, fontWeight: '700' },
+    basketMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: theme.spacing(1) },
+    basketAmount: { color: theme.colors.primaryDark, fontWeight: '800', fontSize: 16, marginTop: theme.spacing(3) },
+    emptyState: { alignItems: 'center', paddingVertical: theme.spacing(10), paddingHorizontal: theme.spacing(6) },
+    emptyText: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(3) },
+    fab: {
+      position: 'absolute',
+      right: theme.spacing(5),
+      bottom: theme.spacing(6),
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: theme.colors.primary,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: theme.spacing(5),
+      paddingVertical: theme.spacing(4),
+      shadowColor: '#000',
+      shadowOpacity: 0.2,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    fabText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
+  })
+);
+
+function StatusPill({ status }: { status: Basket['status'] }) {
+  const styles = useStyles();
+  const isSettled = status === 'fully_settled';
+  return (
+    <View
+      style={[
+        styles.statusPill,
+        { backgroundColor: isSettled ? '#E6F6EC' : '#FDF3D6' },
+      ]}
+    >
+      <Text style={[styles.statusPillText, { color: isSettled ? '#1F9D55' : '#9C7500' }]}>
+        {isSettled ? 'Fully Settled' : 'Pending Payments'}
+      </Text>
+    </View>
+  );
+}
+
+export default function HomeScreen() {
+  const styles = useStyles();
+  const { user } = useAuth();
+  const { baskets, openSplitEngine, lookupByTextCode } = useSplit();
+  const [searchCode, setSearchCode] = useState('');
+  const [searchResult, setSearchResult] = useState<Basket | null | undefined>(undefined);
+
+  const handleSearch = async () => {
+    if (!searchCode.trim()) return setSearchResult(undefined);
+    const result = await lookupByTextCode(searchCode);
+    setSearchResult(result);
+  };
+
+  const activeBaskets = baskets.filter((b) => b.status !== 'fully_settled');
+
+  return (
+    <SafeAreaView style={styles.flex} edges={['top']}>
+      <View style={styles.header}>
+        <Text style={styles.greeting}>Welcome back,</Text>
+        <Text style={styles.name}>{user?.fullName?.split(' ')[0] ?? 'there'} 👋</Text>
+
+        <View style={styles.searchRow}>
+          <Search size={16} color={styles.greeting.color as string} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Enter text code e.g. SP-9281"
+            placeholderTextColor={styles.greeting.color as string}
+            value={searchCode}
+            autoCapitalize="characters"
+            onChangeText={setSearchCode}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
+        </View>
+
+        <View style={styles.chipsRow}>
+          <Pressable style={styles.chip} onPress={openSplitEngine}>
+            <ShoppingBasket size={14} color={styles.chipText.color as string} />
+            <Text style={styles.chipText}>New Basket</Text>
+          </Pressable>
+          <Pressable style={styles.chip}>
+            <ScanLine size={14} color={styles.chipText.color as string} />
+            <Text style={styles.chipText}>Scan QR</Text>
+          </Pressable>
+          <Pressable style={styles.chip}>
+            <Users2 size={14} color={styles.chipText.color as string} />
+            <Text style={styles.chipText}>My Groups</Text>
+          </Pressable>
+        </View>
+
+        {searchResult !== undefined && (
+          <View style={{ marginTop: 12 }}>
+            {searchResult ? (
+              <Text style={{ color: styles.basketAmount.color as string, fontWeight: '700' }}>
+                Found: {searchResult.title} — ₦{searchResult.totalMarketCost.toLocaleString()}
+              </Text>
+            ) : (
+              <Text style={{ color: styles.greeting.color as string }}>No basket found for that code.</Text>
+            )}
+          </View>
+        )}
+      </View>
+
+      <Text style={styles.sectionTitle}>Active Baskets</Text>
+      <FlatList
+        data={activeBaskets}
+        keyExtractor={(b) => b.id}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <ShoppingBasket size={40} color={styles.emptyText.color as string} />
+            <Text style={styles.emptyText}>
+              No active baskets yet. Tap "Create Food Basket Split" below to start your first group buy.
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.basketCard}>
+            <View style={styles.basketTitleRow}>
+              <Text style={styles.basketTitle}>{item.title}</Text>
+              <StatusPill status={item.status} />
+            </View>
+            <Text style={styles.basketMeta}>
+              Code {item.textCode} · {item.payers.length} payer{item.payers.length !== 1 ? 's' : ''}
+            </Text>
+            <Text style={styles.basketAmount}>₦{item.totalMarketCost.toLocaleString()}</Text>
+          </View>
+        )}
+      />
+
+      <Pressable style={styles.fab} onPress={openSplitEngine}>
+        <Plus size={18} color="#fff" />
+        <Text style={styles.fabText}>Create Food Basket Split</Text>
+      </Pressable>
+
+      <SplitEngineModal />
+    </SafeAreaView>
+  );
+}

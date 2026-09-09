@@ -1,10 +1,12 @@
 // src/services/payment.service.ts
 // Paystack integration layer. Swap the mock branch for a real fetch to
-// https://api.paystack.co/dedicated_account once PAYSTACK_SECRET_KEY is live.
+// https://api.paystack.co/dedicated_account once PAYSTACK_SECRET_KEY is
+// live (Phase 1 item 1 in the execution plan — this file is still mock-only
+// until that Paystack business activation checklist is complete).
 // Docs: https://paystack.com/docs/payments/dedicated-virtual-accounts/
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-const PAYSTACK_BASE_URL = 'https://api.paystack.co';
+import { env } from '../config/env';
+import { logger } from '../lib/logger';
 
 interface CreateVirtualAccountInput {
   basketId: string;
@@ -16,29 +18,30 @@ interface VirtualAccountResult {
   bankName: string;
   accountNumber: string;
   accountName: string;
-  expiresAt: string;
+  expiresAt: Date;
 }
 
 export async function createVirtualAccount(input: CreateVirtualAccountInput): Promise<VirtualAccountResult> {
   // MOCK MODE — no live Paystack key configured, return a fake DVA so the
   // frontend flow can be built/demoed end to end without a merchant account.
-  if (!PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY.startsWith('sk_test_xxx')) {
+  if (!env.PAYSTACK_SECRET_KEY) {
+    logger.debug({ basketId: input.basketId, payerId: input.payerId }, 'creating mock virtual account');
     const banks = ['Wema Bank', 'Providus Bank', 'Titan Trust Bank'];
     return {
       bankName: banks[Math.floor(Math.random() * banks.length)],
       accountNumber: `99${Math.floor(1000000 + Math.random() * 8999999)}`,
       accountName: `SplitIt / ${input.basketId.toUpperCase()}`,
-      expiresAt: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
+      expiresAt: new Date(Date.now() + 1000 * 60 * 30),
     };
   }
 
   // LIVE MODE — real Paystack Dedicated Virtual Account creation.
   // Requires a Paystack customer to already exist for the payer; simplified
   // here to the core call shape.
-  const response = await fetch(`${PAYSTACK_BASE_URL}/dedicated_account`, {
+  const response = await fetch('https://api.paystack.co/dedicated_account', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -53,6 +56,7 @@ export async function createVirtualAccount(input: CreateVirtualAccountInput): Pr
     data: { bank: { name: string }; account_number: string; account_name: string };
   };
   if (!response.ok) {
+    logger.error({ basketId: input.basketId, payerId: input.payerId, err: json?.message }, 'Paystack DVA creation failed');
     throw new Error(json?.message ?? 'Failed to create Paystack virtual account');
   }
 
@@ -60,6 +64,6 @@ export async function createVirtualAccount(input: CreateVirtualAccountInput): Pr
     bankName: json.data.bank.name,
     accountNumber: json.data.account_number,
     accountName: json.data.account_name,
-    expiresAt: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
+    expiresAt: new Date(Date.now() + 1000 * 60 * 30),
   };
 }

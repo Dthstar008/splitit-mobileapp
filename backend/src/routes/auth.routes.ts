@@ -1,17 +1,45 @@
 // src/routes/auth.routes.ts
+// Phase 0 item 2: password hashing. SHA-256 (crypto.createHash) is a fast
+// general-purpose hash — cheap to brute-force at scale on GPUs — so it's
+// replaced with bcrypt, a slow, salted algorithm built for passwords.
+//
+// Migration path for any account created under the old scheme: hashAlgorithm
+// on the user row is tagged SHA256_LEGACY. On that user's next successful
+// login, verifyPassword falls back to the legacy comparison, and if it
+// matches we transparently re-hash the password with bcrypt and flip the
+// tag to BCRYPT — no forced password reset, no downtime.
+
 import { Router } from 'express';
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { nanoid } from 'nanoid';
-import { users, findUserByEmailOrPhone } from '../services/store';
+import { createUser, findUserByEmailOrPhone, toSafeUser, updateUserPassword } from '../services/store';
 import { signToken } from '../middleware/auth.middleware';
-import { User } from '../types';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
-function hashPassword(password: string): string {
-  // NOTE: swap for bcrypt/argon2 before production — sha256 here keeps the
-  // template dependency-light for the mock/demo phase.
+const BCRYPT_ROUNDS = 12;
+
+function legacySha256(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+/** Returns true if `password` matches, regardless of which algorithm the stored hash used. */
+async function verifyPassword(
+  password: string,
+  user: { passwordHash: string; hashAlgorithm: 'SHA256_LEGACY' | 'BCRYPT' }
+): Promise<boolean> {
+  if (user.hashAlgorithm === 'BCRYPT') {
+    return bcrypt.compare(password, user.passwordHash);
+  }
+  // Legacy path — constant-time compare against the old sha256 digest.
+  const candidate = Buffer.from(legacySha256(password));
+  const stored = Buffer.from(user.passwordHash);
+  return candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
 }
 
 function generateSplitId(fullName: string): string {
@@ -20,7 +48,7 @@ function generateSplitId(fullName: string): string {
 }
 
 // POST /auth/signup
-router.post('/signup', (req, res) => {
+router.post('/signup', async (req, res) => {
   const { fullName, email, phone, password } = req.body ?? {};
 
   if (!fullName || !email || !phone || !password) {
@@ -29,40 +57,42 @@ router.post('/signup', (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
-  if (findUserByEmailOrPhone(email) || findUserByEmailOrPhone(phone)) {
+  if ((await findUserByEmailOrPhone(email)) || (await findUserByEmailOrPhone(phone))) {
     return res.status(409).json({ error: 'An account with that email or phone already exists' });
   }
 
-  const user: User = {
-    id: `usr_${nanoid(8)}`,
+  const user = await createUser({
     fullName,
     email,
     phone,
-    passwordHash: hashPassword(password),
+    passwordHash: await hashPassword(password),
+    hashAlgorithm: 'BCRYPT',
     splitId: generateSplitId(fullName),
-  };
-  users.push(user);
+  });
 
   const token = signToken(user.id);
-  const { passwordHash, ...safeUser } = user;
-  res.status(201).json({ user: safeUser, token });
+  res.status(201).json({ user: toSafeUser(user), token });
 });
 
 // POST /auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { identifier, password } = req.body ?? {};
   if (!identifier || !password) {
     return res.status(400).json({ error: 'identifier and password are required' });
   }
 
-  const user = findUserByEmailOrPhone(identifier);
-  if (!user || user.passwordHash !== hashPassword(password)) {
+  const user = await findUserByEmailOrPhone(identifier);
+  if (!user || !(await verifyPassword(password, user))) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
+  if (user.hashAlgorithm === 'SHA256_LEGACY') {
+    logger.info({ userId: user.id }, 'migrating legacy sha256 password hash to bcrypt on login');
+    await updateUserPassword(user.id, await hashPassword(password));
+  }
+
   const token = signToken(user.id);
-  const { passwordHash, ...safeUser } = user;
-  res.json({ user: safeUser, token });
+  res.json({ user: toSafeUser(user), token });
 });
 
 export default router;

@@ -79,6 +79,7 @@ export default function LoginScreen() {
     clearError();
     try {
       await login({ identifier, password });
+      router.replace('/(tabs)/home');
     } catch {
       // captured in context
     }

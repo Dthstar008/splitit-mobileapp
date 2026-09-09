@@ -80,7 +80,7 @@ export default function SignupScreen() {
     clearError();
     try {
       await signup({ fullName, email, phone, password });
-      // Root layout auto-switches to (tabs) once `user` is set.
+      router.replace('/(tabs)/home');
     } catch {
       // error already captured in context
     }

@@ -1,0 +1,134 @@
+// SplitIt!! v2 — Phase 0 data model.
+// Replaces the in-memory arrays in the old src/services/store.ts with real,
+// durable tables. Shapes intentionally mirror the old src/types/index.ts so
+// the service-layer function signatures barely change.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  // Ids are application-generated (nanoid, prefixed like the old
+  // src/services/split.service.ts did: usr_/bskt_/payer_) rather than
+  // Prisma's default cuid() — see src/services/store.ts. This keeps
+  // basket.textCode and qrPayload derivable from the id at creation time,
+  // exactly like the pre-Phase-0 code did.
+  id            String   @id
+  fullName      String
+  email         String   @unique
+  phone         String   @unique
+  passwordHash  String
+  // Tags legacy SHA-256 hashes so auth.routes.ts knows to transparently
+  // re-hash with bcrypt on the user's next successful login.
+  hashAlgorithm HashAlgorithm @default(BCRYPT)
+  splitId       String   @unique
+  payoutBankName      String?
+  payoutAccountNumber String?
+  payoutAccountName   String?
+  createdAt     DateTime @default(now())
+
+  baskets Basket[]
+
+  @@map("users")
+}
+
+enum HashAlgorithm {
+  SHA256_LEGACY
+  BCRYPT
+}
+
+model Basket {
+  id               String       @id
+  textCode         String       @unique
+  title            String
+  totalMarketCost  Decimal      @db.Decimal(12, 2)
+  status           BasketStatus @default(pending_payments)
+  qrPayload        String
+  createdAt        DateTime     @default(now())
+
+  adminId String
+  admin   User   @relation(fields: [adminId], references: [id])
+
+  items         BasketItem[]
+  payers        Payer[]
+  paymentEvents PaymentEvent[]
+
+  @@index([adminId])
+  @@map("baskets")
+}
+
+enum BasketStatus {
+  draft
+  active
+  fully_settled
+  pending_payments
+}
+
+model BasketItem {
+  id       String  @id
+  name     String
+  cost     Decimal @db.Decimal(12, 2)
+
+  basketId String
+  basket   Basket @relation(fields: [basketId], references: [id], onDelete: Cascade)
+
+  @@map("basket_items")
+}
+
+model Payer {
+  id                   String      @id
+  name                 String
+  splitId              String?
+  shareAmount          Decimal     @db.Decimal(12, 2)
+  feeAmount            Decimal     @db.Decimal(12, 2)
+  totalDue             Decimal     @db.Decimal(12, 2)
+  status               PayerStatus @default(pending)
+  virtualAccountNumber String?
+  virtualAccountBank   String?
+  virtualAccountExpiresAt DateTime?
+
+  basketId String
+  basket   Basket @relation(fields: [basketId], references: [id], onDelete: Cascade)
+
+  paymentEvents PaymentEvent[]
+
+  @@index([basketId])
+  @@map("payers")
+}
+
+enum PayerStatus {
+  pending
+  paid
+}
+
+// One row per processed Paystack webhook event. The unique constraint on
+// paystackReference is the idempotency guard from Phase 0 item 4 — it
+// survives restarts and works across multiple server instances, unlike the
+// old in-memory `processedReferences` Set.
+model PaymentEvent {
+  id                String   @id
+  paystackReference  String   @unique
+  amountKobo         Int
+  status              PaymentEventStatus
+  rawPayload          Json
+  createdAt           DateTime @default(now())
+
+  basketId String
+  basket   Basket @relation(fields: [basketId], references: [id])
+  payerId  String
+  payer    Payer  @relation(fields: [payerId], references: [id])
+
+  @@index([basketId])
+  @@map("payment_events")
+}
+
+enum PaymentEventStatus {
+  applied
+  underpaid
+  ignored
+}

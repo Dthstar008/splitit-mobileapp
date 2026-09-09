@@ -1,28 +1,46 @@
 // src/services/split.service.ts
-// Core split-engine math — kept identical in shape to the frontend mock
-// (services/api.ts) so client-side previews match server-side truth.
+// Core split-engine math — pure, deterministic, and framework-agnostic on
+// purpose (Phase 0 item 5: "start with split.service.ts, it's pure math,
+// cheapest to test"). It has zero dependency on Prisma or Express, so it
+// can be unit tested with no database and no server running — see
+// __tests__/split.service.test.ts.
+//
+// Kept identical in shape to the frontend mock (services/api.ts) so
+// client-side previews match server-side truth.
 
-import { Basket, BasketItem, Payer } from '../types';
-import { nanoid } from 'nanoid';
+import { env } from '../config/env';
 
-const FEE_RATE = Number(process.env.CONVENIENCE_FEE_RATE ?? 0.015);
-
-export function computeConvenienceFee(baseAmount: number) {
-  const feeAmount = Math.round(baseAmount * FEE_RATE * 100) / 100;
-  return { baseAmount, feeRate: FEE_RATE, feeAmount, totalAmount: Math.round((baseAmount + feeAmount) * 100) / 100 };
+export interface PayerHandle {
+  name: string;
+  splitId?: string;
 }
 
-export function computeSplitDistribution(
-  totalCost: number,
-  payerHandles: { name: string; splitId?: string }[]
-): Payer[] {
+export interface ComputedPayer {
+  name: string;
+  splitId?: string;
+  shareAmount: number;
+  feeAmount: number;
+  totalDue: number;
+  status: 'pending';
+}
+
+export function computeConvenienceFee(baseAmount: number, feeRate: number = env.CONVENIENCE_FEE_RATE) {
+  const feeAmount = Math.round(baseAmount * feeRate * 100) / 100;
+  return {
+    baseAmount,
+    feeRate,
+    feeAmount,
+    totalAmount: Math.round((baseAmount + feeAmount) * 100) / 100,
+  };
+}
+
+export function computeSplitDistribution(totalCost: number, payerHandles: PayerHandle[]): ComputedPayer[] {
   if (payerHandles.length === 0) return [];
   const rawShare = Math.round((totalCost / payerHandles.length) * 100) / 100;
 
   return payerHandles.map((p) => {
     const fee = computeConvenienceFee(rawShare);
     return {
-      id: `payer_${nanoid(6)}`,
       name: p.name,
       splitId: p.splitId,
       shareAmount: rawShare,
@@ -33,34 +51,40 @@ export function computeSplitDistribution(
   });
 }
 
-export function buildBasket(input: {
+export interface NewBasketInput {
   title: string;
-  items: BasketItem[];
+  items: { name: string; cost: number }[];
   totalMarketCost: number;
-  payerHandles: { name: string; splitId?: string }[];
+  payerHandles: PayerHandle[];
   adminId: string;
-}): Basket {
-  const id = `bskt_${nanoid(6)}`;
-  const textCode = `SP-${id.split('_')[1].toUpperCase()}`;
-  const payers = computeSplitDistribution(input.totalMarketCost, input.payerHandles);
+}
 
+export interface ComputedBasket {
+  title: string;
+  items: { name: string; cost: number }[];
+  totalMarketCost: number;
+  payers: ComputedPayer[];
+  status: 'pending_payments';
+  adminId: string;
+}
+
+// Computes the basket shape ready for persistence. Deliberately does NOT
+// assign ids/textCode/qrPayload/createdAt — those are identity/storage
+// concerns owned by store.ts (Phase 0 moved them off in-memory arrays and
+// onto Postgres-generated + application-generated ids).
+export function computeBasket(input: NewBasketInput): ComputedBasket {
   return {
-    id,
-    textCode,
     title: input.title,
-    totalMarketCost: input.totalMarketCost,
     items: input.items,
-    payers,
+    totalMarketCost: input.totalMarketCost,
+    payers: computeSplitDistribution(input.totalMarketCost, input.payerHandles),
     status: 'pending_payments',
-    createdAt: new Date().toISOString(),
     adminId: input.adminId,
-    qrPayload: JSON.stringify({ basketId: id, textCode, title: input.title }),
   };
 }
 
-// Recomputes basket status after a payer settles — flips to fully_settled
-// once every payer has status 'paid'.
-export function refreshBasketStatus(basket: Basket): Basket {
-  const allPaid = basket.payers.every((p) => p.status === 'paid');
-  return { ...basket, status: allPaid ? 'fully_settled' : 'pending_payments' };
+// Given the full set of payer statuses on a basket, decides whether the
+// basket should now read as fully_settled.
+export function isFullySettled(payerStatuses: ('pending' | 'paid')[]): boolean {
+  return payerStatuses.length > 0 && payerStatuses.every((s) => s === 'paid');
 }

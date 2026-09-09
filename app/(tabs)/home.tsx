@@ -3,8 +3,9 @@
 // Basket Split" button, and text-code lookup search bar.
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { Plus, Search, ScanLine, Users2, ShoppingBasket } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -85,6 +86,27 @@ const useStyles = createStyles((theme) =>
       elevation: 6,
     },
     fabText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
+    scannerOverlay: { flex: 1, backgroundColor: '#000' },
+    scannerHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: theme.spacing(5),
+      paddingVertical: theme.spacing(4),
+      backgroundColor: '#000',
+    },
+    scannerTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+    scannerClose: { color: '#fff', fontSize: 15, fontWeight: '700' },
+    camera: { flex: 1 },
+    scannerHint: {
+      position: 'absolute',
+      bottom: theme.spacing(8),
+      left: theme.spacing(5),
+      right: theme.spacing(5),
+      color: '#fff',
+      textAlign: 'center',
+      fontSize: 14,
+    },
   })
 );
 
@@ -109,8 +131,47 @@ export default function HomeScreen() {
   const styles = useStyles();
   const { user } = useAuth();
   const { baskets, openSplitEngine, lookupByTextCode } = useSplit();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [searchCode, setSearchCode] = useState('');
   const [searchResult, setSearchResult] = useState<Basket | null | undefined>(undefined);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasScanned, setHasScanned] = useState(false);
+
+  const handleScanQr = async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert('Camera permission needed', 'Allow camera access to scan a basket QR code.');
+        return;
+      }
+    }
+
+    setHasScanned(false);
+    setIsScannerOpen(true);
+  };
+
+  const handleBarcodeScanned = async ({ data }: BarcodeScanningResult) => {
+    if (hasScanned) return;
+    setHasScanned(true);
+    setIsScannerOpen(false);
+
+    let code = data.trim();
+    try {
+      const payload = JSON.parse(code) as { textCode?: string };
+      code = payload.textCode?.trim() ?? code;
+    } catch {
+    }
+
+    if (!code) {
+      setHasScanned(false);
+      Alert.alert('Invalid QR code', 'This QR code does not contain a basket code.');
+      return;
+    }
+
+    setSearchCode(code);
+    const result = await lookupByTextCode(code);
+    setSearchResult(result);
+  };
 
   const handleSearch = async () => {
     if (!searchCode.trim()) return setSearchResult(undefined);
@@ -145,7 +206,7 @@ export default function HomeScreen() {
             <ShoppingBasket size={14} color={styles.chipText.color as string} />
             <Text style={styles.chipText}>New Basket</Text>
           </Pressable>
-          <Pressable style={styles.chip}>
+          <Pressable style={styles.chip} onPress={handleScanQr}>
             <ScanLine size={14} color={styles.chipText.color as string} />
             <Text style={styles.chipText}>Scan QR</Text>
           </Pressable>
@@ -199,6 +260,24 @@ export default function HomeScreen() {
         <Plus size={18} color="#fff" />
         <Text style={styles.fabText}>Create Food Basket Split</Text>
       </Pressable>
+
+      <Modal visible={isScannerOpen} animationType="slide" onRequestClose={() => setIsScannerOpen(false)}>
+        <View style={styles.scannerOverlay}>
+          <View style={styles.scannerHeader}>
+            <Text style={styles.scannerTitle}>Scan basket QR</Text>
+            <Pressable onPress={() => setIsScannerOpen(false)} hitSlop={12}>
+              <Text style={styles.scannerClose}>Close</Text>
+            </Pressable>
+          </View>
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={hasScanned ? undefined : handleBarcodeScanned}
+          />
+          <Text style={styles.scannerHint}>Point your camera at a basket QR code.</Text>
+        </View>
+      </Modal>
 
       <SplitEngineModal />
     </SafeAreaView>

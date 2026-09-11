@@ -2,8 +2,10 @@
 // Frontend API client for the Express backend in /backend.
 
 import {
+  BankOption,
   Basket,
   BasketItem,
+  ChargeResult,
   ConvenienceFeeBreakdown,
   Payer,
   User,
@@ -135,6 +137,34 @@ export async function generateVirtualAccount(basketId: string, payerId: string):
   return request(`/baskets/${encodeURIComponent(basketId)}/payers/${encodeURIComponent(payerId)}/virtual-account`, {
     method: 'POST',
   });
+}
+
+// ---------- PAY WITH BANK (Paystack Charge API) ----------
+
+export async function listBanks(): Promise<BankOption[]> {
+  return request('/payments/banks');
+}
+
+export async function chargeBankAccount(
+  basketId: string,
+  payerId: string,
+  input: { bankCode: string; accountNumber: string }
+): Promise<ChargeResult> {
+  return request(`/baskets/${encodeURIComponent(basketId)}/payers/${encodeURIComponent(payerId)}/charge-bank`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function submitChargeOtp(
+  basketId: string,
+  payerId: string,
+  input: { reference: string; otp: string }
+): Promise<ChargeResult> {
+  return request(
+    `/baskets/${encodeURIComponent(basketId)}/payers/${encodeURIComponent(payerId)}/charge-bank/submit-otp`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
 }
 
 // ---------- MULTI-CHANNEL DISPATCH ----------

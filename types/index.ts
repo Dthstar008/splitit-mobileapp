@@ -55,6 +55,22 @@ export interface Basket {
   qrPayload: string;
 }
 
+// "Pay with Bank" — the payer picks their own bank instead of transferring
+// into a generated virtual account. Mirrors backend/src/types/index.ts.
+export interface BankOption {
+  name: string;
+  code: string;
+  slug: string;
+}
+
+export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'failed' | 'pending';
+
+export interface ChargeResult {
+  status: ChargeStatus;
+  reference?: string;
+  message?: string;
+}
+
 export interface ConvenienceFeeBreakdown {
   baseAmount: number;
   feeRate: number; // 0.015

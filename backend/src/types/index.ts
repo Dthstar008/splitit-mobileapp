@@ -46,6 +46,32 @@ export interface BasketDTO {
   qrPayload: string;
 }
 
+// "Pay with Bank" flow: the payer picks their own bank instead of
+// transferring into the generated virtual account. Paystack's Charge API
+// (POST /charge) settles this via OTP (most Nigerian banks) or PIN
+// (a smaller set) — reference: https://paystack.com/docs/payments/charge/
+export interface BankOption {
+  name: string;
+  code: string;
+  slug: string;
+}
+
+export interface ChargeBankInput {
+  basketId: string;
+  payerId: string;
+  bankCode: string;
+  accountNumber: string;
+  amountKobo: number;
+}
+
+export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'failed' | 'pending';
+
+export interface ChargeResult {
+  status: ChargeStatus;
+  reference?: string;
+  message?: string;
+}
+
 export interface PaystackChargeSuccessEvent {
   event: 'charge.success';
   data: {

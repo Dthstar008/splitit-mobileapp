@@ -11,7 +11,8 @@ import { createStyles } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSplit } from '../../context/SplitContext';
 import SplitEngineModal from '../../components/split-engine/SplitEngineModal';
-import { Basket } from '../../types';
+import PayWithBankModal from '../../components/pay/PayWithBankModal';
+import { Basket, Payer } from '../../types';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
@@ -107,6 +108,35 @@ const useStyles = createStyles((theme) =>
       textAlign: 'center',
       fontSize: 14,
     },
+    foundCard: {
+      marginTop: theme.spacing(3),
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      padding: theme.spacing(4),
+    },
+    foundTitle: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
+    foundMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+    foundPayerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: theme.spacing(2.5),
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+      marginTop: theme.spacing(3),
+    },
+    foundPayerName: { color: theme.colors.text, fontWeight: '600', fontSize: 13 },
+    foundPayerAmount: { color: theme.colors.primaryDark, fontWeight: '700', fontSize: 13 },
+    payBtn: {
+      backgroundColor: theme.colors.primary,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: theme.spacing(4),
+      paddingVertical: theme.spacing(2),
+    },
+    payBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 12 },
+    paidPillText: { color: theme.colors.success, fontWeight: '700', fontSize: 12 },
   })
 );
 
@@ -136,6 +166,7 @@ export default function HomeScreen() {
   const [searchResult, setSearchResult] = useState<Basket | null | undefined>(undefined);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
+  const [payingPayer, setPayingPayer] = useState<Payer | null>(null);
 
   const handleScanQr = async () => {
     if (!cameraPermission?.granted) {
@@ -217,13 +248,31 @@ export default function HomeScreen() {
         </View>
 
         {searchResult !== undefined && (
-          <View style={{ marginTop: 12 }}>
+          <View>
             {searchResult ? (
-              <Text style={{ color: styles.basketAmount.color as string, fontWeight: '700' }}>
-                Found: {searchResult.title} — ₦{searchResult.totalMarketCost.toLocaleString()}
-              </Text>
+              <View style={styles.foundCard}>
+                <Text style={styles.foundTitle}>{searchResult.title}</Text>
+                <Text style={styles.foundMeta}>
+                  Code {searchResult.textCode} · ₦{searchResult.totalMarketCost.toLocaleString()} total
+                </Text>
+                {searchResult.payers.map((p) => (
+                  <View key={p.id} style={styles.foundPayerRow}>
+                    <View>
+                      <Text style={styles.foundPayerName}>{p.name}</Text>
+                      <Text style={styles.foundPayerAmount}>₦{p.totalDue.toLocaleString()}</Text>
+                    </View>
+                    {p.status === 'paid' ? (
+                      <Text style={styles.paidPillText}>Paid ✓</Text>
+                    ) : (
+                      <Pressable style={styles.payBtn} onPress={() => setPayingPayer(p)}>
+                        <Text style={styles.payBtnText}>Pay</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                ))}
+              </View>
             ) : (
-              <Text style={{ color: styles.greeting.color as string }}>No basket found for that code.</Text>
+              <Text style={{ color: styles.greeting.color as string, marginTop: 12 }}>No basket found for that code.</Text>
             )}
           </View>
         )}
@@ -280,6 +329,21 @@ export default function HomeScreen() {
       </Modal>
 
       <SplitEngineModal />
+
+      {payingPayer && searchResult && (
+        <PayWithBankModal
+          visible
+          basket={searchResult}
+          payer={payingPayer}
+          onClose={() => {
+            setPayingPayer(null);
+            // Re-fetch in case the payment already landed (live mode) or a
+            // previous attempt's webhook caught up — status won't change in
+            // mock mode, since nothing there fires a real webhook.
+            if (searchResult) lookupByTextCode(searchResult.textCode).then(setSearchResult);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }

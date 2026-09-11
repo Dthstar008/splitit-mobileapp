@@ -15,6 +15,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider } from '../theme/ThemeContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplitProvider } from '../context/SplitContext';
+import { isSentryEnabled } from '../lib/sentry';
 
 function RootNavigator() {
   const { user } = useAuth();
@@ -45,6 +46,8 @@ function RootLayout() {
   );
 }
 
-// Sentry.wrap is a no-op passthrough when Sentry.init was never called (no
-// DSN configured, see lib/sentry.ts) — safe to apply unconditionally.
-export default Sentry.wrap(RootLayout);
+// Sentry.wrap still tries to start an app-start span even when Sentry.init
+// was never called, which logs a "wrap was called before init" warning
+// (harmless, but not the silent no-op the DSN-gating elsewhere promises) —
+// so only wrap when there's actually a DSN configured.
+export default isSentryEnabled ? Sentry.wrap(RootLayout) : RootLayout;

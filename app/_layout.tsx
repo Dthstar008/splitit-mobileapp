@@ -2,7 +2,13 @@
 // Root layout: wraps the whole app in providers, then switches between the
 // Auth Stack and the Main Tab Stack based on global auth state.
 
+// Imported first, before anything else in the app, so Sentry (if configured
+// — see lib/sentry.ts, no-op without EXPO_PUBLIC_SENTRY_DSN) can catch
+// errors from everything that follows.
+import '../lib/sentry';
+
 import React from 'react';
+import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -24,7 +30,7 @@ function RootNavigator() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
@@ -38,3 +44,7 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+// Sentry.wrap is a no-op passthrough when Sentry.init was never called (no
+// DSN configured, see lib/sentry.ts) — safe to apply unconditionally.
+export default Sentry.wrap(RootLayout);

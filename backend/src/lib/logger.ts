@@ -7,7 +7,10 @@ import pino from 'pino';
 import { env } from '../config/env';
 
 export const logger = pino({
-  level: process.env.LOG_LEVEL ?? (env.isProduction ? 'info' : 'debug'),
+  // Test runs stay silent by default — __tests__/*.routes.test.ts assert on
+  // logger calls via jest.spyOn, which still tracks them regardless of
+  // pino's own level filtering, so this only quiets stdout noise.
+  level: process.env.LOG_LEVEL ?? (env.isTest ? 'silent' : env.isProduction ? 'info' : 'debug'),
   transport:
     env.isProduction || env.isTest
       ? undefined

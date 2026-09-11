@@ -26,9 +26,22 @@ compromised:
 | 2. Password hashing | [src/routes/auth.routes.ts](src/routes/auth.routes.ts) hashes new passwords with bcrypt. Existing SHA-256 accounts are tagged `hashAlgorithm: SHA256_LEGACY` and transparently re-hashed to bcrypt on next successful login — no forced reset. |
 | 3. Secrets & config | [src/config/env.ts](src/config/env.ts) is the only file allowed to read `process.env`. Missing `JWT_SECRET`/`DATABASE_URL` throws at import time — the app refuses to start rather than fall back to a default. Paystack keys are additionally validated as non-placeholder in production. |
 | 4. Idempotency that survives restarts | [src/routes/webhook.routes.ts](src/routes/webhook.routes.ts) inserts one `PaymentEvent` row per Paystack reference; the table's `UNIQUE` constraint (not an in-memory `Set`) is the idempotency guard, so it works across restarts and multiple server instances. |
-| 5. Test harness | [__tests__/split.service.test.ts](__tests__/split.service.test.ts) — 14 Jest tests against the pure split-math functions in `src/services/split.service.ts`. No database needed to run them. |
-| 6. CI pipeline | [.github/workflows/ci.yml](.github/workflows/ci.yml) — typecheck, generate Prisma client, run tests on every PR touching `backend/`. |
-| 7. Error tracking & logging | [src/lib/logger.ts](src/lib/logger.ts) (pino, structured JSON in production) replaces `morgan` + bare `console.log`. [src/server.ts](src/server.ts) wires up Sentry when `SENTRY_DSN` is set, no-ops otherwise. |
+| 5. Test harness | [__tests__/split.service.test.ts](__tests__/split.service.test.ts) — 14 Jest tests against the pure split-math functions. Plus Supertest route-level coverage for all three route files — [auth.routes.test.ts](__tests__/auth.routes.test.ts), [basket.routes.test.ts](__tests__/basket.routes.test.ts), [webhook.routes.test.ts](__tests__/webhook.routes.test.ts) (signature verification, DB-unique-constraint idempotency, and a direct regression test for the async-crash fix below). 44 tests total, no database needed to run any of them (DB-touching functions are mocked). Mobile Detox/Maestro smoke test is still not done. |
+| 6. CI pipeline | [.github/workflows/ci.yml](.github/workflows/ci.yml) — typecheck, generate Prisma client, run tests on every PR touching `backend/`. Note: the `lint` script is currently just `tsc --noEmit` again, not a real linter — there's no ESLint configured yet. |
+| 7. Error tracking & logging | Backend: [src/lib/logger.ts](src/lib/logger.ts) (pino, structured JSON) replaces `morgan` + bare `console.log`; [src/server.ts](src/server.ts) wires up Sentry when `SENTRY_DSN` is set, no-ops otherwise. Frontend: [lib/sentry.ts](../lib/sentry.ts) mirrors the same no-op-without-DSN pattern via `EXPO_PUBLIC_SENTRY_DSN`, wired into [app/_layout.tsx](../app/_layout.tsx). |
+
+## Found and fixed after Phase 0 landed
+
+Express 4 doesn't catch a rejected promise thrown inside an async route
+handler — it becomes an unhandled rejection, and modern Node terminates the
+process on that by default. A single transient Supabase blip during a login
+request took the entire backend down this way. Fixed via
+[src/lib/asyncHandler.ts](src/lib/asyncHandler.ts), wrapping every async
+route handler so a DB failure returns a clean `500` instead of killing the
+process; `webhook.routes.ts`'s post-ack bookkeeping (which has no `res` left
+to route an error to) is contained in its own try/catch instead. Regression
+tests for this live in `__tests__/*.routes.test.ts` — search for "instead of
+crashing".
 
 Not in scope for Phase 0 (left as-is / commented as future work, per the
 plan): live Paystack integration, webhook→queue offloading, the
@@ -76,5 +89,8 @@ backend/
   __tests__/
     setup-env.ts
     split.service.test.ts       # Phase 0 item 5
+    auth.routes.test.ts         # Phase 0 item 5 (route-level, added later)
+    basket.routes.test.ts       # Phase 0 item 5 (route-level, added later)
+    webhook.routes.test.ts      # Phase 0 item 5 (route-level, added later)
   .github/workflows/ci.yml      # Phase 0 item 6
 ```

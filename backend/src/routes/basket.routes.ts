@@ -12,11 +12,12 @@ import {
 import { computeBasket } from '../services/split.service';
 import { requireAuth, AuthedRequest } from '../middleware/auth.middleware';
 import { createVirtualAccount } from '../services/payment.service';
+import { asyncHandler } from '../lib/asyncHandler';
 
 const router = Router();
 
 // POST /baskets — STEP A+B+C: create basket, compute split, generate QR payload.
-router.post('/', requireAuth, async (req: AuthedRequest, res) => {
+router.post('/', requireAuth, asyncHandler<AuthedRequest>(async (req, res) => {
   const { title, items, totalMarketCost, payerHandles } = req.body ?? {};
 
   if (!title || !totalMarketCost || !Array.isArray(payerHandles) || payerHandles.length === 0) {
@@ -33,24 +34,24 @@ router.post('/', requireAuth, async (req: AuthedRequest, res) => {
 
   const basket = await saveNewBasket(computed);
   res.status(201).json(toBasketDTO(basket));
-});
+}));
 
 // GET /baskets — all baskets created by the authenticated admin (Home/History tabs).
-router.get('/', requireAuth, async (req: AuthedRequest, res) => {
+router.get('/', requireAuth, asyncHandler<AuthedRequest>(async (req, res) => {
   const mine = await findBasketsByAdmin(req.userId!);
   res.json(mine.map(toBasketDTO));
-});
+}));
 
 // GET /baskets/code/:textCode — STEP D lookup: type SP-9281 to pull up the bill.
-router.get('/code/:textCode', async (req, res) => {
+router.get('/code/:textCode', asyncHandler(async (req, res) => {
   const basket = await findBasketByTextCode(req.params.textCode);
   if (!basket) return res.status(404).json({ error: 'No basket found for that code' });
   res.json(toBasketDTO(basket));
-});
+}));
 
 // POST /baskets/:basketId/payers/:payerId/virtual-account
 // Generates a temporary DVA for a specific payer to pay their share + fee into.
-router.post('/:basketId/payers/:payerId/virtual-account', async (req, res) => {
+router.post('/:basketId/payers/:payerId/virtual-account', asyncHandler(async (req, res) => {
   const basket = await findBasketById(req.params.basketId);
   if (!basket) return res.status(404).json({ error: 'Basket not found' });
 
@@ -70,6 +71,6 @@ router.post('/:basketId/payers/:payerId/virtual-account', async (req, res) => {
     accountName: account.accountName,
     expiresAt: account.expiresAt.toISOString(),
   });
-});
+}));
 
 export default router;

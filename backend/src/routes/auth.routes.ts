@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { createUser, findUserByEmailOrPhone, toSafeUser, updateUserPassword } from '../services/store';
 import { signToken } from '../middleware/auth.middleware';
 import { logger } from '../lib/logger';
+import { asyncHandler } from '../lib/asyncHandler';
 
 const router = Router();
 
@@ -48,7 +49,7 @@ function generateSplitId(fullName: string): string {
 }
 
 // POST /auth/signup
-router.post('/signup', async (req, res) => {
+router.post('/signup', asyncHandler(async (req, res) => {
   const { fullName, email, phone, password } = req.body ?? {};
 
   if (!fullName || !email || !phone || !password) {
@@ -72,10 +73,10 @@ router.post('/signup', async (req, res) => {
 
   const token = signToken(user.id);
   res.status(201).json({ user: toSafeUser(user), token });
-});
+}));
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
   const { identifier, password } = req.body ?? {};
   if (!identifier || !password) {
     return res.status(400).json({ error: 'identifier and password are required' });
@@ -93,6 +94,6 @@ router.post('/login', async (req, res) => {
 
   const token = signToken(user.id);
   res.json({ user: toSafeUser(user), token });
-});
+}));
 
 export default router;

@@ -63,57 +63,67 @@ router.post('/paystack', async (req: Request, res: Response) => {
   if (event.event !== 'charge.success') return;
 
   const { reference, metadata } = event.data;
-  const basketId = metadata?.basketId;
-  const payerId = metadata?.payerId;
-  if (!basketId || !payerId) {
-    logger.warn({ reference }, 'charge.success missing basketId/payerId metadata, ignoring');
-    return;
-  }
 
-  const basket = await findBasketById(basketId);
-  const payer = basket?.payers.find((p) => p.id === payerId);
-  if (!basket || !payer) {
-    logger.warn({ reference, basketId, payerId }, 'charge.success references unknown basket/payer');
-    return;
-  }
-
-  const amountPaidNaira = event.data.amount / 100;
-  const underpaid = amountPaidNaira < Number(payer.totalDue);
-
+  // Everything below runs after the response is already sent, so there's no
+  // res to error out to — a rejected promise here would otherwise become an
+  // unhandled rejection and crash the whole process (this is what happened
+  // to auth.routes.ts). Contain it: log and move on, same as the
+  // known-unroutable-event branches below.
   try {
-    // The unique constraint on paystackReference IS the idempotency check —
-    // no separate "have we seen this before" read-then-write race.
-    await prisma.paymentEvent.create({
-      data: {
-        id: `pevt_${reference}`,
-        paystackReference: reference,
-        amountKobo: event.data.amount,
-        status: underpaid ? 'underpaid' : 'applied',
-        rawPayload: event as unknown as Prisma.InputJsonValue,
-        basketId,
-        payerId,
-      },
-    });
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      logger.info({ reference }, 'duplicate webhook delivery, already processed');
+    const basketId = metadata?.basketId;
+    const payerId = metadata?.payerId;
+    if (!basketId || !payerId) {
+      logger.warn({ reference }, 'charge.success missing basketId/payerId metadata, ignoring');
       return;
     }
-    logger.error({ err, reference }, 'failed to record payment event');
-    return;
-  }
 
-  if (underpaid) {
-    // Underpayment — leave the payer pending. Phase 1 item 4 needs a real
-    // policy here (partial credit / refund / "top up the difference"); for
-    // now this is recorded (status: 'underpaid') for reconciliation instead
-    // of silently vanishing into the logs like the old code did.
-    logger.warn({ reference, basketId, payerId, amountPaidNaira, totalDue: payer.totalDue }, 'underpayment recorded');
-    return;
-  }
+    const basket = await findBasketById(basketId);
+    const payer = basket?.payers.find((p) => p.id === payerId);
+    if (!basket || !payer) {
+      logger.warn({ reference, basketId, payerId }, 'charge.success references unknown basket/payer');
+      return;
+    }
 
-  await markPayerPaidAndRefreshBasket(basketId, payerId);
-  logger.info({ reference, basketId, payerId, amountPaidNaira }, 'payer settled');
+    const amountPaidNaira = event.data.amount / 100;
+    const underpaid = amountPaidNaira < Number(payer.totalDue);
+
+    try {
+      // The unique constraint on paystackReference IS the idempotency check —
+      // no separate "have we seen this before" read-then-write race.
+      await prisma.paymentEvent.create({
+        data: {
+          id: `pevt_${reference}`,
+          paystackReference: reference,
+          amountKobo: event.data.amount,
+          status: underpaid ? 'underpaid' : 'applied',
+          rawPayload: event as unknown as Prisma.InputJsonValue,
+          basketId,
+          payerId,
+        },
+      });
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        logger.info({ reference }, 'duplicate webhook delivery, already processed');
+        return;
+      }
+      logger.error({ err, reference }, 'failed to record payment event');
+      return;
+    }
+
+    if (underpaid) {
+      // Underpayment — leave the payer pending. Phase 1 item 4 needs a real
+      // policy here (partial credit / refund / "top up the difference"); for
+      // now this is recorded (status: 'underpaid') for reconciliation instead
+      // of silently vanishing into the logs like the old code did.
+      logger.warn({ reference, basketId, payerId, amountPaidNaira, totalDue: payer.totalDue }, 'underpayment recorded');
+      return;
+    }
+
+    await markPayerPaidAndRefreshBasket(basketId, payerId);
+    logger.info({ reference, basketId, payerId, amountPaidNaira }, 'payer settled');
+  } catch (err) {
+    logger.error({ err, reference }, 'unhandled error processing charge.success after ack');
+  }
 });
 
 export default router;

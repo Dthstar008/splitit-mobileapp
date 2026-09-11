@@ -25,15 +25,15 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="home"
-        options={{ title: 'Home', tabBarIcon: ({ color, size }: { color: string; size: number }) => <Home color={color} size={size} /> }}
+        options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Home color={color} size={size} /> }}
       />
       <Tabs.Screen
         name="history"
-        options={{ title: 'History', tabBarIcon: ({ color, size }: { color: string; size: number }) => <History color={color} size={size} /> }}
+        options={{ title: 'History', tabBarIcon: ({ color, size }) => <History color={color} size={size} /> }}
       />
       <Tabs.Screen
         name="profile"
-        options={{ title: 'Profile', tabBarIcon: ({ color, size }: { color: string; size: number }) => <User color={color} size={size} /> }}
+        options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <User color={color} size={size} /> }}
       />
     </Tabs>
   );

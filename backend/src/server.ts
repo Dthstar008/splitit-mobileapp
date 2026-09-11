@@ -46,11 +46,18 @@ if (env.SENTRY_DSN) {
   app.use(Sentry.Handlers.errorHandler());
 }
 
-// Last-resort error handler — anything a route didn't catch lands here as a
-// structured log line (and, if configured, a Sentry event) instead of an
-// unhandled exception taking the process down.
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+// Last-resort error handler — anything a route didn't catch (routes now wrap
+// their async handlers in asyncHandler(), see src/lib/asyncHandler.ts, so a
+// rejected promise reaches here via next(err) instead of crashing the
+// process as an unhandled rejection) lands here as a structured log line
+// (and, if configured, a Sentry event).
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error({ err }, 'unhandled error');
+  // A response already sent (e.g. the webhook handler acks before doing its
+  // best-effort bookkeeping) can't be sent again — calling res.status here
+  // would itself throw. Express's own default handler knows how to no-op
+  // correctly in that case, so defer to it instead.
+  if (res.headersSent) return next(err);
   res.status(500).json({ error: 'Internal server error' });
 });
 

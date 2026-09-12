@@ -10,11 +10,12 @@ import { createStyles } from '../../theme/ThemeContext';
 import { useSplit } from '../../context/SplitContext';
 import { useAuth } from '../../context/AuthContext';
 import { computeSplitDistribution } from '../../services/api';
+import PressableScale from '../ui/PressableScale';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
     container: { padding: theme.spacing(5) },
-    label: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing(2) },
+    label: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing(2), fontFamily: theme.font.bodySemiBold },
     row: { flexDirection: 'row', gap: theme.spacing(2) },
     input: {
       backgroundColor: theme.colors.surfaceAlt,
@@ -26,6 +27,7 @@ const useStyles = createStyles((theme) =>
       color: theme.colors.text,
       fontSize: 15,
       flex: 1,
+      fontFamily: theme.font.body,
     },
     addBtn: {
       width: 48,
@@ -45,17 +47,17 @@ const useStyles = createStyles((theme) =>
       padding: theme.spacing(3.5),
       marginTop: theme.spacing(3),
     },
-    payerName: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
-    payerId: { color: theme.colors.textMuted, fontSize: 12 },
-    payerAmount: { color: theme.colors.primaryDark, fontWeight: '700', fontSize: 14 },
-    payerFee: { color: theme.colors.secondaryDark, fontSize: 11, marginTop: 2 },
+    payerName: { color: theme.colors.text, fontSize: 14, fontFamily: theme.font.bodyBold },
+    payerId: { color: theme.colors.textMuted, fontSize: 12, fontFamily: theme.font.body },
+    payerAmount: { color: theme.colors.primaryDark, fontSize: 14, fontFamily: theme.font.bodyBold },
+    payerFee: { color: theme.colors.secondaryDark, fontSize: 11, marginTop: 2, fontFamily: theme.font.bodyMedium },
     summaryCard: {
       backgroundColor: theme.colors.primaryLight,
       borderRadius: theme.radius.md,
       padding: theme.spacing(4),
       marginTop: theme.spacing(5),
     },
-    summaryText: { color: theme.colors.primaryDark, fontWeight: '600', fontSize: 13 },
+    summaryText: { color: theme.colors.primaryDark, fontSize: 13, fontFamily: theme.font.bodySemiBold },
     footerRow: { flexDirection: 'row', gap: theme.spacing(3), marginTop: theme.spacing(6) },
     backBtn: {
       flex: 1,
@@ -68,7 +70,7 @@ const useStyles = createStyles((theme) =>
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
-    backBtnText: { color: theme.colors.text, fontWeight: '700' },
+    backBtnText: { color: theme.colors.text, fontFamily: theme.font.bodyBold },
     finalizeBtn: {
       flex: 2,
       flexDirection: 'row',
@@ -78,10 +80,15 @@ const useStyles = createStyles((theme) =>
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
       paddingVertical: theme.spacing(4),
+      shadowColor: theme.colors.glowShadow,
+      shadowOpacity: 0.6,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
     },
     finalizeBtnDisabled: { opacity: 0.6 },
-    finalizeBtnText: { color: theme.colors.textInverse, fontWeight: '700' },
-    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: theme.spacing(2) },
+    finalizeBtnText: { color: theme.colors.textInverse, fontFamily: theme.font.bodyBold },
+    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: theme.spacing(2), fontFamily: theme.font.bodyMedium },
   })
 );
 
@@ -123,9 +130,9 @@ export default function AddPayersStep() {
           value={name}
           onChangeText={setName}
         />
-        <Pressable style={styles.addBtn} onPress={handleAdd}>
+        <PressableScale style={styles.addBtn} onPress={handleAdd}>
           <UserPlus size={20} color="#fff" />
-        </Pressable>
+        </PressableScale>
       </View>
       <TextInput
         style={[styles.input, { marginTop: 8 }]}
@@ -169,17 +176,17 @@ export default function AddPayersStep() {
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <View style={styles.footerRow}>
-        <Pressable style={styles.backBtn} onPress={() => goToStep('create')}>
+        <PressableScale style={styles.backBtn} onPress={() => goToStep('create')}>
           <ArrowLeft size={16} color={styles.backBtnText.color as string} />
           <Text style={styles.backBtnText}>Back</Text>
-        </Pressable>
-        <Pressable
+        </PressableScale>
+        <PressableScale
           style={[styles.finalizeBtn, isSubmitting && styles.finalizeBtnDisabled]}
           onPress={handleFinalize}
           disabled={isSubmitting || draft.payerHandles.length === 0}
         >
           <Text style={styles.finalizeBtnText}>{isSubmitting ? 'Generating…' : 'Generate Bill & QR'}</Text>
-        </Pressable>
+        </PressableScale>
       </View>
     </View>
   );

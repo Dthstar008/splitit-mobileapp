@@ -8,11 +8,20 @@
 import '../lib/sentry';
 
 import React from 'react';
+import { View } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts, Sora_600SemiBold, Sora_700Bold } from '@expo-google-fonts/sora';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 import { ThemeProvider } from '../theme/ThemeContext';
+import { palette } from '../theme/colors';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplitProvider } from '../context/SplitContext';
 import { isSentryEnabled } from '../lib/sentry';
@@ -32,12 +41,29 @@ function RootNavigator() {
 }
 
 function RootLayout() {
+  // Theme tokens (theme/colors.ts) reference these families by exact
+  // PostScript name (Sora_700Bold, Inter_600SemiBold, ...) — screens render
+  // with the system font as an invisible fallback for one frame otherwise,
+  // so hold the tree until they're in memory rather than let text reflow.
+  const [fontsLoaded] = useFonts({
+    Sora_600SemiBold,
+    Sora_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return <View style={{ flex: 1, backgroundColor: palette.midnight900 }} />;
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
         <AuthProvider>
           <SplitProvider>
-            <StatusBar style="dark" />
+            <StatusBar style="light" />
             <RootNavigator />
           </SplitProvider>
         </AuthProvider>

@@ -6,12 +6,13 @@ import { View, Text, TextInput, Pressable, StyleSheet, FlatList } from 'react-na
 import { Plus, Trash2, ArrowRight } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
 import { useSplit } from '../../context/SplitContext';
+import PressableScale from '../ui/PressableScale';
 import { BasketItem } from '../../types';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
     container: { padding: theme.spacing(5) },
-    label: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing(2) },
+    label: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing(2), fontFamily: theme.font.bodySemiBold },
     input: {
       backgroundColor: theme.colors.surfaceAlt,
       borderRadius: theme.radius.md,
@@ -22,6 +23,7 @@ const useStyles = createStyles((theme) =>
       color: theme.colors.text,
       fontSize: 15,
       marginBottom: theme.spacing(4),
+      fontFamily: theme.font.body,
     },
     itemRow: {
       flexDirection: 'row',
@@ -40,7 +42,7 @@ const useStyles = createStyles((theme) =>
       paddingVertical: theme.spacing(3),
       marginBottom: theme.spacing(4),
     },
-    addItemBtnText: { color: theme.colors.secondaryDark, fontWeight: '700', fontSize: 13 },
+    addItemBtnText: { color: theme.colors.secondaryDark, fontSize: 13, fontFamily: theme.font.bodyBold },
     itemListRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -53,8 +55,8 @@ const useStyles = createStyles((theme) =>
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
-    itemListName: { color: theme.colors.text, fontWeight: '600', fontSize: 14 },
-    itemListCost: { color: theme.colors.textMuted, fontSize: 13 },
+    itemListName: { color: theme.colors.text, fontSize: 14, fontFamily: theme.font.bodySemiBold },
+    itemListCost: { color: theme.colors.textMuted, fontSize: 13, fontFamily: theme.font.body },
     nextBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -64,9 +66,14 @@ const useStyles = createStyles((theme) =>
       borderRadius: theme.radius.pill,
       paddingVertical: theme.spacing(4),
       marginTop: theme.spacing(3),
+      shadowColor: theme.colors.glowShadow,
+      shadowOpacity: 0.6,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
     },
-    nextBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 16 },
-    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: -theme.spacing(2), marginBottom: theme.spacing(3) },
+    nextBtnText: { color: theme.colors.textInverse, fontSize: 16, fontFamily: theme.font.bodyBold },
+    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: -theme.spacing(2), marginBottom: theme.spacing(3), fontFamily: theme.font.bodyMedium },
   })
 );
 
@@ -132,10 +139,10 @@ export default function CreateBasketStep() {
           onChangeText={setItemCost}
         />
       </View>
-      <Pressable style={styles.addItemBtn} onPress={handleAddItem}>
+      <PressableScale style={styles.addItemBtn} onPress={handleAddItem}>
         <Plus size={16} color={styles.addItemBtnText.color as string} />
         <Text style={styles.addItemBtnText}>Add Item</Text>
-      </Pressable>
+      </PressableScale>
 
       <FlatList
         data={draft.items}
@@ -156,10 +163,10 @@ export default function CreateBasketStep() {
 
       {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
 
-      <Pressable style={styles.nextBtn} onPress={handleNext}>
+      <PressableScale style={styles.nextBtn} onPress={handleNext}>
         <Text style={styles.nextBtnText}>Add Payers</Text>
         <ArrowRight size={18} color={styles.nextBtnText.color as string} />
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }

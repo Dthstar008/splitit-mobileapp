@@ -25,6 +25,7 @@ const emptyDraft: DraftBasket = {
 
 interface SplitContextValue {
   baskets: Basket[];
+  isLoadingBaskets: boolean;
   activeStep: SplitEngineStep;
   draft: DraftBasket;
   finalizedBasket: Basket | null;
@@ -48,6 +49,7 @@ const SplitContext = createContext<SplitContextValue | undefined>(undefined);
 export const SplitProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token } = useAuth();
   const [baskets, setBaskets] = useState<Basket[]>([]);
+  const [isLoadingBaskets, setIsLoadingBaskets] = useState(true);
   const [activeStep, setActiveStep] = useState<SplitEngineStep>(null);
   const [draft, setDraft] = useState<DraftBasket>(emptyDraft);
   const [finalizedBasket, setFinalizedBasket] = useState<Basket | null>(null);
@@ -68,12 +70,18 @@ export const SplitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   React.useEffect(() => {
     if (!token) {
       setBaskets([]);
+      setIsLoadingBaskets(false);
       return;
     }
 
-    api.listBaskets(token).then(setBaskets).catch((e: unknown) => {
-      setError(e instanceof Error ? e.message : 'Could not load baskets');
-    });
+    setIsLoadingBaskets(true);
+    api
+      .listBaskets(token)
+      .then(setBaskets)
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Could not load baskets');
+      })
+      .finally(() => setIsLoadingBaskets(false));
   }, [token]);
 
   const updateDraftBasics = useCallback((fields: Partial<Pick<DraftBasket, 'title' | 'totalMarketCost'>>) => {
@@ -141,6 +149,7 @@ export const SplitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <SplitContext.Provider
       value={{
         baskets,
+        isLoadingBaskets,
         activeStep,
         draft,
         finalizedBasket,

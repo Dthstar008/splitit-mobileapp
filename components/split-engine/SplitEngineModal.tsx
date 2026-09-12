@@ -2,8 +2,8 @@
 // Orchestrates STEP A -> B -> C -> D inside a bottom-sheet-style modal
 // launched from the Home Tab's floating "Create Food Basket Split" button.
 
-import React from 'react';
-import { Modal, View, Text, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Modal, View, Text, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Animated } from 'react-native';
 import { X } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
 import { useSplit } from '../../context/SplitContext';
@@ -30,7 +30,7 @@ const useStyles = createStyles((theme) =>
       paddingTop: theme.spacing(5),
       paddingBottom: theme.spacing(3),
     },
-    headerTitle: { fontSize: 17, fontWeight: '800', color: theme.colors.text },
+    headerTitle: { fontSize: 17, color: theme.colors.text, fontFamily: theme.font.headingBold },
     closeBtn: {
       width: 32,
       height: 32,
@@ -40,8 +40,8 @@ const useStyles = createStyles((theme) =>
       justifyContent: 'center',
     },
     stepDots: { flexDirection: 'row', gap: 6, paddingHorizontal: theme.spacing(5), marginBottom: theme.spacing(2) },
-    stepDot: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.border },
-    stepDotActive: { backgroundColor: theme.colors.primary },
+    stepDotTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, overflow: 'hidden' },
+    stepDotFill: { flex: 1, borderRadius: 2, backgroundColor: theme.colors.primary },
   })
 );
 
@@ -53,6 +53,29 @@ const STEP_TITLES: Record<string, string> = {
 };
 
 const STEP_ORDER = ['create', 'payers', 'qr', 'dispatch'];
+
+// Fills left-to-right as the user completes a step, rather than snapping —
+// motivated by the same reason a progress bar moves smoothly in general:
+// it reads as advancement, not a state flip.
+function StepDot({ done }: { done: boolean }) {
+  const styles = useStyles();
+  const fill = useRef(new Animated.Value(done ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(fill, { toValue: done ? 1 : 0, duration: 280, useNativeDriver: false }).start();
+  }, [done, fill]);
+
+  return (
+    <View style={styles.stepDotTrack}>
+      <Animated.View
+        style={[
+          styles.stepDotFill,
+          { width: fill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+        ]}
+      />
+    </View>
+  );
+}
 
 export default function SplitEngineModal() {
   const styles = useStyles();
@@ -77,7 +100,7 @@ export default function SplitEngineModal() {
 
           <View style={styles.stepDots}>
             {STEP_ORDER.map((step, i) => (
-              <View key={step} style={[styles.stepDot, i <= currentIndex && styles.stepDotActive]} />
+              <StepDot key={step} done={i <= currentIndex} />
             ))}
           </View>
 

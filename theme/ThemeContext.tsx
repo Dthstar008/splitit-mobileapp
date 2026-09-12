@@ -1,10 +1,11 @@
 // theme/ThemeContext.tsx
 // Same pattern as Hagah: useTheme() + createStyles(theme) factory.
-// Swap `lightTheme` for a dark variant here later if SplitIt!! ever needs
-// a dark dashboard mode — screens never need to change.
+// theme/colors.ts owns the actual palette (Midnight + Electric Emerald) —
+// swap `midnightTheme` there for a future variant and no screen needs to
+// change, since every screen reads colors through useTheme()/createStyles().
 
 import React, { createContext, useContext, useMemo } from 'react';
-import { AppTheme, lightTheme, onboardingTheme } from './colors';
+import { AppTheme, midnightTheme, onboardingTheme } from './colors';
 
 interface ThemeContextValue {
   theme: AppTheme;
@@ -12,12 +13,12 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: lightTheme,
+  theme: midnightTheme,
   onboardingTheme,
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const value = useMemo(() => ({ theme: lightTheme, onboardingTheme }), []);
+  const value = useMemo(() => ({ theme: midnightTheme, onboardingTheme }), []);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
 

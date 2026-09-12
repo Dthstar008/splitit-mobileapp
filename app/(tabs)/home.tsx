@@ -6,20 +6,23 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
-import { Plus, Search, ScanLine, Users2, ShoppingBasket } from 'lucide-react-native';
-import { createStyles } from '../../theme/ThemeContext';
+import { Search, ScanLine, Users2, ShoppingBasket, Plus } from 'lucide-react-native';
+import { createStyles, useTheme } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSplit } from '../../context/SplitContext';
 import SplitEngineModal from '../../components/split-engine/SplitEngineModal';
 import PayWithBankModal from '../../components/pay/PayWithBankModal';
+import PressableScale from '../../components/ui/PressableScale';
+import BasketCardSkeleton from '../../components/ui/BasketCardSkeleton';
+import GlassCard from '../../components/ui/GlassCard';
 import { Basket, Payer } from '../../types';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
     flex: { flex: 1, backgroundColor: theme.colors.background },
     header: { paddingHorizontal: theme.spacing(5), paddingTop: theme.spacing(4) },
-    greeting: { fontSize: 13, color: theme.colors.textMuted },
-    name: { fontSize: 22, fontWeight: '800', color: theme.colors.text, marginTop: 2 },
+    greeting: { fontSize: 13, color: theme.colors.textMuted, fontFamily: theme.font.body },
+    name: { fontSize: 23, color: theme.colors.text, marginTop: 2, fontFamily: theme.font.headingBold },
     searchRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -30,7 +33,13 @@ const useStyles = createStyles((theme) =>
       paddingHorizontal: theme.spacing(4),
       marginTop: theme.spacing(5),
     },
-    searchInput: { flex: 1, paddingVertical: theme.spacing(3), marginLeft: theme.spacing(2), color: theme.colors.text },
+    searchInput: {
+      flex: 1,
+      paddingVertical: theme.spacing(3),
+      marginLeft: theme.spacing(2),
+      color: theme.colors.text,
+      fontFamily: theme.font.body,
+    },
     chipsRow: { flexDirection: 'row', gap: theme.spacing(2), marginTop: theme.spacing(5) },
     chip: {
       flexDirection: 'row',
@@ -43,32 +52,41 @@ const useStyles = createStyles((theme) =>
       paddingHorizontal: theme.spacing(4),
       paddingVertical: theme.spacing(2.5),
     },
-    chipText: { fontSize: 12, fontWeight: '600', color: theme.colors.text },
+    chipText: { fontSize: 12, color: theme.colors.text, fontFamily: theme.font.bodySemiBold },
     sectionTitle: {
       fontSize: 15,
-      fontWeight: '800',
       color: theme.colors.text,
       marginTop: theme.spacing(7),
       marginBottom: theme.spacing(3),
       paddingHorizontal: theme.spacing(5),
+      fontFamily: theme.font.headingSemiBold,
     },
+    // Visual surface (blur/tint/border/shadow) lives in GlassCard now — this
+    // is layout-only (padding, spacing between cards).
     basketCard: {
-      backgroundColor: theme.colors.surface,
-      borderRadius: theme.radius.lg,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
       padding: theme.spacing(4),
       marginHorizontal: theme.spacing(5),
       marginBottom: theme.spacing(3),
     },
     basketTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    basketTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, flex: 1, marginRight: 8 },
+    basketTitle: {
+      fontSize: 15,
+      color: theme.colors.text,
+      flex: 1,
+      marginRight: 8,
+      fontFamily: theme.font.bodySemiBold,
+    },
     statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: theme.radius.pill },
-    statusPillText: { fontSize: 11, fontWeight: '700' },
-    basketMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: theme.spacing(1) },
-    basketAmount: { color: theme.colors.primaryDark, fontWeight: '800', fontSize: 16, marginTop: theme.spacing(3) },
+    statusPillText: { fontSize: 11, fontFamily: theme.font.bodyBold },
+    basketMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: theme.spacing(1), fontFamily: theme.font.body },
+    basketAmount: {
+      color: theme.colors.primaryDark,
+      fontSize: 16,
+      marginTop: theme.spacing(3),
+      fontFamily: theme.font.headingBold,
+    },
     emptyState: { alignItems: 'center', paddingVertical: theme.spacing(10), paddingHorizontal: theme.spacing(6) },
-    emptyText: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(3) },
+    emptyText: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(3), fontFamily: theme.font.body },
     fab: {
       position: 'absolute',
       right: theme.spacing(5),
@@ -80,13 +98,15 @@ const useStyles = createStyles((theme) =>
       borderRadius: theme.radius.pill,
       paddingHorizontal: theme.spacing(5),
       paddingVertical: theme.spacing(4),
-      shadowColor: '#000',
-      shadowOpacity: 0.2,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 6,
+      // A plain dark shadow disappears against a near-black background —
+      // this needs to read as a glow, not elevation, to be visible at all.
+      shadowColor: theme.colors.glowShadow,
+      shadowOpacity: 0.7,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 10,
     },
-    fabText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
+    fabText: { color: theme.colors.textInverse, fontSize: 14, fontFamily: theme.font.bodyBold },
     scannerOverlay: { flex: 1, backgroundColor: '#000' },
     scannerHeader: {
       flexDirection: 'row',
@@ -96,8 +116,8 @@ const useStyles = createStyles((theme) =>
       paddingVertical: theme.spacing(4),
       backgroundColor: '#000',
     },
-    scannerTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
-    scannerClose: { color: '#fff', fontSize: 15, fontWeight: '700' },
+    scannerTitle: { color: '#fff', fontSize: 18, fontFamily: theme.font.headingBold },
+    scannerClose: { color: '#fff', fontSize: 15, fontFamily: theme.font.bodyBold },
     camera: { flex: 1 },
     scannerHint: {
       position: 'absolute',
@@ -107,17 +127,14 @@ const useStyles = createStyles((theme) =>
       color: '#fff',
       textAlign: 'center',
       fontSize: 14,
+      fontFamily: theme.font.body,
     },
     foundCard: {
       marginTop: theme.spacing(3),
-      backgroundColor: theme.colors.surface,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderRadius: theme.radius.md,
       padding: theme.spacing(4),
     },
-    foundTitle: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
-    foundMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+    foundTitle: { color: theme.colors.text, fontSize: 15, fontFamily: theme.font.headingSemiBold },
+    foundMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2, fontFamily: theme.font.body },
     foundPayerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -127,30 +144,31 @@ const useStyles = createStyles((theme) =>
       borderTopColor: theme.colors.border,
       marginTop: theme.spacing(3),
     },
-    foundPayerName: { color: theme.colors.text, fontWeight: '600', fontSize: 13 },
-    foundPayerAmount: { color: theme.colors.primaryDark, fontWeight: '700', fontSize: 13 },
+    foundPayerName: { color: theme.colors.text, fontSize: 13, fontFamily: theme.font.bodyMedium },
+    foundPayerAmount: { color: theme.colors.primaryDark, fontSize: 13, fontFamily: theme.font.bodySemiBold },
     payBtn: {
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
       paddingHorizontal: theme.spacing(4),
       paddingVertical: theme.spacing(2),
     },
-    payBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 12 },
-    paidPillText: { color: theme.colors.success, fontWeight: '700', fontSize: 12 },
+    payBtnText: { color: theme.colors.textInverse, fontSize: 12, fontFamily: theme.font.bodyBold },
+    paidPillText: { color: theme.colors.success, fontSize: 12, fontFamily: theme.font.bodyBold },
   })
 );
 
 function StatusPill({ status }: { status: Basket['status'] }) {
   const styles = useStyles();
+  const theme = useTheme();
   const isSettled = status === 'fully_settled';
   return (
     <View
       style={[
         styles.statusPill,
-        { backgroundColor: isSettled ? '#E6F6EC' : '#FDF3D6' },
+        { backgroundColor: isSettled ? theme.colors.primaryLight : theme.colors.secondaryLight },
       ]}
     >
-      <Text style={[styles.statusPillText, { color: isSettled ? '#1F9D55' : '#9C7500' }]}>
+      <Text style={[styles.statusPillText, { color: isSettled ? theme.colors.primaryDark : theme.colors.secondaryDark }]}>
         {isSettled ? 'Fully Settled' : 'Pending Payments'}
       </Text>
     </View>
@@ -160,7 +178,7 @@ function StatusPill({ status }: { status: Basket['status'] }) {
 export default function HomeScreen() {
   const styles = useStyles();
   const { user } = useAuth();
-  const { baskets, openSplitEngine, lookupByTextCode } = useSplit();
+  const { baskets, isLoadingBaskets, openSplitEngine, lookupByTextCode } = useSplit();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [searchCode, setSearchCode] = useState('');
   const [searchResult, setSearchResult] = useState<Basket | null | undefined>(undefined);
@@ -210,7 +228,12 @@ export default function HomeScreen() {
     setSearchResult(result);
   };
 
+  const handleMyGroups = () => {
+    Alert.alert('My Groups', 'Saved payer groups are coming soon — for now, add payers fresh on each basket.');
+  };
+
   const activeBaskets = baskets.filter((b) => b.status !== 'fully_settled');
+  const showSkeleton = isLoadingBaskets && baskets.length === 0;
 
   return (
     <SafeAreaView style={styles.flex} edges={['top']}>
@@ -232,25 +255,24 @@ export default function HomeScreen() {
           />
         </View>
 
+        {/* Single "create" affordance lives on the FAB below — a "New
+            Basket" chip here would just be a second control with the same
+            intent, so this row is scan + groups only. */}
         <View style={styles.chipsRow}>
-          <Pressable style={styles.chip} onPress={openSplitEngine}>
-            <ShoppingBasket size={14} color={styles.chipText.color as string} />
-            <Text style={styles.chipText}>New Basket</Text>
-          </Pressable>
-          <Pressable style={styles.chip} onPress={handleScanQr}>
+          <PressableScale style={styles.chip} onPress={handleScanQr}>
             <ScanLine size={14} color={styles.chipText.color as string} />
             <Text style={styles.chipText}>Scan QR</Text>
-          </Pressable>
-          <Pressable style={styles.chip}>
+          </PressableScale>
+          <PressableScale style={styles.chip} onPress={handleMyGroups}>
             <Users2 size={14} color={styles.chipText.color as string} />
             <Text style={styles.chipText}>My Groups</Text>
-          </Pressable>
+          </PressableScale>
         </View>
 
         {searchResult !== undefined && (
           <View>
             {searchResult ? (
-              <View style={styles.foundCard}>
+              <GlassCard style={styles.foundCard} radius={16}>
                 <Text style={styles.foundTitle}>{searchResult.title}</Text>
                 <Text style={styles.foundMeta}>
                   Code {searchResult.textCode} · ₦{searchResult.totalMarketCost.toLocaleString()} total
@@ -264,51 +286,60 @@ export default function HomeScreen() {
                     {p.status === 'paid' ? (
                       <Text style={styles.paidPillText}>Paid ✓</Text>
                     ) : (
-                      <Pressable style={styles.payBtn} onPress={() => setPayingPayer(p)}>
+                      <PressableScale style={styles.payBtn} onPress={() => setPayingPayer(p)}>
                         <Text style={styles.payBtnText}>Pay</Text>
-                      </Pressable>
+                      </PressableScale>
                     )}
                   </View>
                 ))}
-              </View>
+              </GlassCard>
             ) : (
-              <Text style={{ color: styles.greeting.color as string, marginTop: 12 }}>No basket found for that code.</Text>
+              <Text style={{ color: styles.greeting.color as string, marginTop: 12, fontFamily: styles.greeting.fontFamily }}>
+                No basket found for that code.
+              </Text>
             )}
           </View>
         )}
       </View>
 
       <Text style={styles.sectionTitle}>Active Baskets</Text>
-      <FlatList
-        data={activeBaskets}
-        keyExtractor={(b) => b.id}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <ShoppingBasket size={40} color={styles.emptyText.color as string} />
-            <Text style={styles.emptyText}>
-              No active baskets yet. Tap "Create Food Basket Split" below to start your first group buy.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.basketCard}>
-            <View style={styles.basketTitleRow}>
-              <Text style={styles.basketTitle}>{item.title}</Text>
-              <StatusPill status={item.status} />
+      {showSkeleton ? (
+        <View>
+          <BasketCardSkeleton />
+          <BasketCardSkeleton />
+        </View>
+      ) : (
+        <FlatList
+          data={activeBaskets}
+          keyExtractor={(b) => b.id}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <ShoppingBasket size={40} color={styles.emptyText.color as string} />
+              <Text style={styles.emptyText}>
+                No active baskets yet. Tap "Create Food Basket Split" below to start your first group buy.
+              </Text>
             </View>
-            <Text style={styles.basketMeta}>
-              Code {item.textCode} · {item.payers.length} payer{item.payers.length !== 1 ? 's' : ''}
-            </Text>
-            <Text style={styles.basketAmount}>₦{item.totalMarketCost.toLocaleString()}</Text>
-          </View>
-        )}
-      />
+          }
+          renderItem={({ item }) => (
+            <GlassCard style={styles.basketCard} glow={item.status === 'fully_settled'}>
+              <View style={styles.basketTitleRow}>
+                <Text style={styles.basketTitle}>{item.title}</Text>
+                <StatusPill status={item.status} />
+              </View>
+              <Text style={styles.basketMeta}>
+                Code {item.textCode} · {item.payers.length} payer{item.payers.length !== 1 ? 's' : ''}
+              </Text>
+              <Text style={styles.basketAmount}>₦{item.totalMarketCost.toLocaleString()}</Text>
+            </GlassCard>
+          )}
+        />
+      )}
 
-      <Pressable style={styles.fab} onPress={openSplitEngine}>
+      <PressableScale style={styles.fab} onPress={openSplitEngine} scaleTo={0.95}>
         <Plus size={18} color="#fff" />
         <Text style={styles.fabText}>Create Food Basket Split</Text>
-      </Pressable>
+      </PressableScale>
 
       <Modal visible={isScannerOpen} animationType="slide" onRequestClose={() => setIsScannerOpen(false)}>
         <View style={styles.scannerOverlay}>

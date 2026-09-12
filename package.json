@@ -12,13 +12,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
+    "@expo-google-fonts/sora": "^0.4.2",
     "@expo/vector-icons": "^15.1.1",
     "@sentry/react-native": "~7.11.0",
     "expo": "^57.0.0",
+    "expo-blur": "~57.0.3",
     "expo-camera": "~57.0.4",
     "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.17",
-    "expo-font": "~57.0.3",
+    "expo-font": "~57.0.4",
+    "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.20",
     "expo-status-bar": "~57.0.1",

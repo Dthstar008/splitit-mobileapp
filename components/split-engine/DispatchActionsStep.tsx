@@ -2,11 +2,12 @@
 // STEP D: Multi-Channel Dispatch — WhatsApp, Email, Text Code display.
 
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, Linking, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { MessageCircle, Mail, Copy, CheckCircle } from 'lucide-react-native';
-import { createStyles } from '../../theme/ThemeContext';
+import { createStyles, useTheme } from '../../theme/ThemeContext';
 import { useSplit } from '../../context/SplitContext';
+import PressableScale from '../ui/PressableScale';
 import * as api from '../../services/api';
 
 const useStyles = createStyles((theme) =>
@@ -19,8 +20,8 @@ const useStyles = createStyles((theme) =>
       alignItems: 'center',
       marginBottom: theme.spacing(6),
     },
-    codeLabel: { color: theme.colors.primaryDark, fontSize: 12, fontWeight: '600', marginBottom: theme.spacing(1) },
-    codeValue: { color: theme.colors.primaryDark, fontSize: 28, fontWeight: '900', letterSpacing: 2 },
+    codeLabel: { color: theme.colors.primaryDark, fontSize: 12, marginBottom: theme.spacing(1), fontFamily: theme.font.bodySemiBold },
+    codeValue: { color: theme.colors.primaryDark, fontSize: 28, letterSpacing: 2, fontFamily: theme.font.headingBold },
     actionBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -39,23 +40,30 @@ const useStyles = createStyles((theme) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    whatsappIcon: { backgroundColor: '#DDF4E4' },
+    whatsappIcon: { backgroundColor: theme.colors.primaryLight },
     emailIcon: { backgroundColor: theme.colors.secondaryLight },
-    actionTitle: { fontWeight: '700', color: theme.colors.text, fontSize: 15 },
-    actionSubtitle: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+    copyIcon: { backgroundColor: theme.colors.surfaceAlt },
+    actionTitle: { color: theme.colors.text, fontSize: 15, fontFamily: theme.font.bodyBold },
+    actionSubtitle: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2, fontFamily: theme.font.body },
     doneBtn: {
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
       paddingVertical: theme.spacing(4),
       alignItems: 'center',
       marginTop: theme.spacing(5),
+      shadowColor: theme.colors.glowShadow,
+      shadowOpacity: 0.6,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
     },
-    doneBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 16 },
+    doneBtnText: { color: theme.colors.textInverse, fontSize: 16, fontFamily: theme.font.bodyBold },
   })
 );
 
 export default function DispatchActionsStep() {
   const styles = useStyles();
+  const theme = useTheme();
   const { finalizedBasket, closeSplitEngine } = useSplit();
   const [copied, setCopied] = useState(false);
 
@@ -89,17 +97,17 @@ export default function DispatchActionsStep() {
         <Text style={styles.codeValue}>{finalizedBasket.textCode}</Text>
       </View>
 
-      <Pressable style={styles.actionBtn} onPress={handleWhatsApp}>
+      <PressableScale style={styles.actionBtn} onPress={handleWhatsApp}>
         <View style={[styles.iconWrap, styles.whatsappIcon]}>
-          <MessageCircle size={20} color="#1F9D55" />
+          <MessageCircle size={20} color={theme.colors.success} />
         </View>
         <View>
           <Text style={styles.actionTitle}>Share via WhatsApp</Text>
           <Text style={styles.actionSubtitle}>Sends the bill breakdown + code</Text>
         </View>
-      </Pressable>
+      </PressableScale>
 
-      <Pressable style={styles.actionBtn} onPress={handleEmail}>
+      <PressableScale style={styles.actionBtn} onPress={handleEmail}>
         <View style={[styles.iconWrap, styles.emailIcon]}>
           <Mail size={20} color={styles.codeLabel.color as string} />
         </View>
@@ -107,21 +115,21 @@ export default function DispatchActionsStep() {
           <Text style={styles.actionTitle}>Share via Email</Text>
           <Text style={styles.actionSubtitle}>Notify all payers by email</Text>
         </View>
-      </Pressable>
+      </PressableScale>
 
-      <Pressable style={styles.actionBtn} onPress={handleCopyCode}>
-        <View style={[styles.iconWrap, { backgroundColor: '#F0F0F0' }]}>
-          {copied ? <CheckCircle size={20} color="#1F9D55" /> : <Copy size={20} color={styles.actionTitle.color as string} />}
+      <PressableScale style={styles.actionBtn} onPress={handleCopyCode}>
+        <View style={[styles.iconWrap, styles.copyIcon]}>
+          {copied ? <CheckCircle size={20} color={theme.colors.success} /> : <Copy size={20} color={styles.actionTitle.color as string} />}
         </View>
         <View>
           <Text style={styles.actionTitle}>{copied ? 'Copied!' : 'Copy Text Code'}</Text>
           <Text style={styles.actionSubtitle}>Anyone can type this into their app</Text>
         </View>
-      </Pressable>
+      </PressableScale>
 
-      <Pressable style={styles.doneBtn} onPress={closeSplitEngine}>
+      <PressableScale style={styles.doneBtn} onPress={closeSplitEngine}>
         <Text style={styles.doneBtnText}>Done</Text>
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }

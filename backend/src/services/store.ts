@@ -5,7 +5,7 @@
 // their original names/shapes (findUserByEmailOrPhone, findBasketByTextCode,
 // findBasketById) so routes barely change — they just gain `await`.
 
-import { Basket as PrismaBasket, BasketItem, Payer as PrismaPayer, User as PrismaUser } from '@prisma/client';
+import { Basket as PrismaBasket, BasketItem, Payer as PrismaPayer, Prisma, User as PrismaUser } from '@prisma/client';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma';
 import { BasketDTO, PayerDTO, SafeUser } from '../types';
@@ -78,13 +78,19 @@ export function toBasketDTO(basket: BasketWithRelations): BasketDTO {
 }
 
 export function toPayerDTO(payer: PrismaPayer): PayerDTO {
+  const totalDue = Number(payer.totalDue);
+  const amountPaid = Number(payer.amountPaid);
   return {
     id: payer.id,
     name: payer.name,
     splitId: payer.splitId ?? undefined,
     shareAmount: Number(payer.shareAmount),
     feeAmount: Number(payer.feeAmount),
-    totalDue: Number(payer.totalDue),
+    totalDue,
+    amountPaid,
+    // Never negative — an overpayment still shows "0 outstanding", not a
+    // negative "amount owed" that would read as SplitIt owing the payer.
+    amountOutstanding: Math.max(0, totalDue - amountPaid),
     status: payer.status,
     virtualAccountNumber: payer.virtualAccountNumber ?? undefined,
   };
@@ -159,19 +165,74 @@ export function setPayerVirtualAccount(
   });
 }
 
-// Marks a payer paid and, if every payer on the basket is now paid, flips
-// the basket to fully_settled — all inside one transaction so a crash
-// mid-update can never leave the payer paid but the basket status stale.
-export async function markPayerPaidAndRefreshBasket(basketId: string, payerId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.payer.update({ where: { id: payerId }, data: { status: 'paid' } });
+// Flips the basket to fully_settled once every payer is 'paid', otherwise
+// back to pending_payments — shared by every call site below so a crash
+// mid-update can never leave a payer's status out of sync with the
+// basket's. Takes the transaction client so callers can compose it with
+// their own payer update in one atomic unit.
+async function refreshBasketStatus(tx: Prisma.TransactionClient, basketId: string): Promise<void> {
+  const payers = await tx.payer.findMany({ where: { basketId } });
+  const allPaid = payers.length > 0 && payers.every((p) => p.status === 'paid');
+  await tx.basket.update({
+    where: { id: basketId },
+    data: { status: allPaid ? 'fully_settled' : 'pending_payments' },
+  });
+}
 
-    const payers = await tx.payer.findMany({ where: { basketId } });
-    const allPaid = payers.length > 0 && payers.every((p) => p.status === 'paid');
+export interface RecordPaymentResult {
+  amountPaid: number;
+  amountOutstanding: number;
+  status: 'underpaid' | 'paid';
+  isOverpaid: boolean;
+}
 
-    await tx.basket.update({
-      where: { id: basketId },
-      data: { status: allPaid ? 'fully_settled' : 'pending_payments' },
+// Phase 1 item 4: real underpayment/overpayment policy. Adds the newly
+// received amount to the payer's running total (so a second, smaller
+// "top up the difference" charge accumulates correctly instead of
+// overwriting the first), then derives status from the cumulative total —
+// never from this one charge in isolation.
+export async function recordPayerPayment(
+  basketId: string,
+  payerId: string,
+  amountReceivedNaira: number
+): Promise<RecordPaymentResult> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.payer.findUniqueOrThrow({ where: { id: payerId } });
+    const totalDue = Number(current.totalDue);
+    const amountPaid = Number(current.amountPaid) + amountReceivedNaira;
+    const isOverpaid = amountPaid > totalDue;
+    const status: 'underpaid' | 'paid' = amountPaid >= totalDue ? 'paid' : 'underpaid';
+
+    await tx.payer.update({ where: { id: payerId }, data: { amountPaid, status } });
+    await refreshBasketStatus(tx, basketId);
+
+    return { amountPaid, amountOutstanding: Math.max(0, totalDue - amountPaid), status, isOverpaid };
+  });
+}
+
+export interface RefundedPayment {
+  amountRefunded: number;
+  paystackReference: string | null;
+}
+
+// Phase 1 item 5: manual-refund admin action. Resets the payer back to
+// owing their full totalDue (not just "pending" — `refunded` keeps a
+// visible record that this basket had a reversed payment, distinct from
+// one that simply never got paid) and un-settles the basket if it had
+// already flipped to fully_settled off the back of this payment.
+export async function refundPayerPayment(basketId: string, payerId: string): Promise<RefundedPayment> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.payer.findUniqueOrThrow({ where: { id: payerId } });
+    const amountRefunded = Number(current.amountPaid);
+
+    const lastEvent = await tx.paymentEvent.findFirst({
+      where: { payerId, status: { in: ['applied', 'overpaid'] } },
+      orderBy: { createdAt: 'desc' },
     });
+
+    await tx.payer.update({ where: { id: payerId }, data: { amountPaid: 0, status: 'refunded' } });
+    await refreshBasketStatus(tx, basketId);
+
+    return { amountRefunded, paystackReference: lastEvent?.paystackReference ?? null };
   });
 }

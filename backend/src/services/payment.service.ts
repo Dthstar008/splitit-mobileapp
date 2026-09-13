@@ -7,7 +7,7 @@
 
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
-import { BankOption, ChargeBankInput, ChargeResult } from '../types';
+import { BankOption, ChargeBankInput, ChargeResult, RefundResult } from '../types';
 
 interface CreateVirtualAccountInput {
   basketId: string;
@@ -165,6 +165,47 @@ export async function chargeBankAccount(input: ChargeBankInput): Promise<ChargeR
     reference: json.data.reference,
     message: json.data.display_text,
   };
+}
+
+// Phase 1 item 5: manual-refund admin action. `paystackReference` is
+// optional because a basket can be marked refunded even when no
+// PaymentEvent row exists to reference (e.g. an admin correcting a mistake
+// recorded some other way) — in that case this is a no-op against Paystack
+// and the caller (basket.routes.ts) is only updating SplitIt's own records.
+export async function refundPayment(input: { paystackReference: string | null; amountKobo?: number }): Promise<RefundResult> {
+  if (!input.paystackReference) {
+    logger.warn('refund requested with no Paystack reference on file — updating SplitIt records only, nothing to refund at Paystack');
+    return { status: 'processed', message: 'No payment reference on file; local records updated only.' };
+  }
+
+  if (!env.PAYSTACK_SECRET_KEY) {
+    logger.debug({ reference: input.paystackReference }, 'mock refund');
+    return { status: 'processed' };
+  }
+
+  const response = await fetch('https://api.paystack.co/refund', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      transaction: input.paystackReference,
+      ...(input.amountKobo ? { amount: input.amountKobo } : {}),
+    }),
+  });
+
+  const json = (await response.json()) as { message?: string; data?: { status: string } };
+  if (!response.ok) {
+    logger.error({ reference: input.paystackReference, err: json?.message }, 'Paystack refund failed');
+    return { status: 'failed', message: json?.message ?? 'Refund could not be processed' };
+  }
+
+  // Paystack refunds are asynchronous — 'processed' here means "accepted",
+  // not "money has moved yet". Full status tracking (via the
+  // refund.processed webhook event) is a natural extension of this, not
+  // built here.
+  return { status: json.data?.status === 'processed' ? 'processed' : 'pending' };
 }
 
 export async function submitChargeOtp(input: { reference: string; otp: string }): Promise<ChargeResult> {

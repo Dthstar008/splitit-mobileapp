@@ -87,6 +87,12 @@ model Payer {
   shareAmount          Decimal     @db.Decimal(12, 2)
   feeAmount            Decimal     @db.Decimal(12, 2)
   totalDue             Decimal     @db.Decimal(12, 2)
+  // Phase 1 item 4: underpayment/overpayment policy. Cumulative amount
+  // actually received for this payer — supports a partial payment "topping
+  // up" toward totalDue across more than one charge, rather than each new
+  // charge.success overwriting the last. amountOutstanding (totalDue minus
+  // this) is what the UI shows and what a top-up charge should bill for.
+  amountPaid           Decimal     @default(0) @db.Decimal(12, 2)
   status               PayerStatus @default(pending)
   virtualAccountNumber String?
   virtualAccountBank   String?
@@ -103,7 +109,15 @@ model Payer {
 
 enum PayerStatus {
   pending
+  // A payment landed but didn't cover totalDue — amountOutstanding > 0.
+  // Distinct from `pending` so the UI can say "partially paid, ₦X left"
+  // instead of implying nothing has happened yet.
+  underpaid
   paid
+  // Paid, then reversed via the admin refund flow — back to owing the full
+  // totalDue, distinct from `pending` so there's a record this basket had a
+  // reversed payment rather than one that simply never arrived.
+  refunded
 }
 
 // One row per processed Paystack webhook event. The unique constraint on
@@ -130,5 +144,11 @@ model PaymentEvent {
 enum PaymentEventStatus {
   applied
   underpaid
+  // Paid more than totalDue. The excess is not tracked as a credit toward a
+  // future basket (no credit-ledger system yet) — it's recorded here purely
+  // so an admin reviewing payment history can see it happened, rather than
+  // it silently collapsing into a plain `applied` event.
+  overpaid
+  refunded
   ignored
 }

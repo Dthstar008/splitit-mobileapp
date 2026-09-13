@@ -18,7 +18,7 @@ export interface BasketItemInput {
   cost: number;
 }
 
-export type PayerStatus = 'pending' | 'paid';
+export type PayerStatus = 'pending' | 'underpaid' | 'paid' | 'refunded';
 
 export interface PayerDTO {
   id: string;
@@ -27,6 +27,11 @@ export interface PayerDTO {
   shareAmount: number;
   feeAmount: number;
   totalDue: number;
+  // Phase 1 item 4: cumulative amount received and what's left, so the
+  // client can render "₦X of ₦Y paid — ₦Z left" instead of a plain binary
+  // pending/paid, and so a top-up charge knows the real amount to bill.
+  amountPaid: number;
+  amountOutstanding: number;
   status: PayerStatus;
   virtualAccountNumber?: string;
 }
@@ -69,6 +74,13 @@ export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'failed' | 'pen
 export interface ChargeResult {
   status: ChargeStatus;
   reference?: string;
+  message?: string;
+}
+
+// Phase 1 item 5: manual-refund admin action. Paystack's refund API
+// (POST /refund) reference: https://paystack.com/docs/payments/refunds/
+export interface RefundResult {
+  status: 'processed' | 'pending' | 'failed';
   message?: string;
 }
 

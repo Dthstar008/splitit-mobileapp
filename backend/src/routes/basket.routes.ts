@@ -5,14 +5,24 @@ import {
   findBasketById,
   findBasketsByAdmin,
   findPayerById,
+  refundPayerPayment,
   saveNewBasket,
   setPayerVirtualAccount,
   toBasketDTO,
 } from '../services/store';
 import { computeBasket } from '../services/split.service';
 import { requireAuth, AuthedRequest } from '../middleware/auth.middleware';
-import { createVirtualAccount, chargeBankAccount, submitChargeOtp } from '../services/payment.service';
+import { createVirtualAccount, chargeBankAccount, refundPayment, submitChargeOtp } from '../services/payment.service';
 import { asyncHandler } from '../lib/asyncHandler';
+
+// A payer's totalDue minus what they've already paid — what a NEW charge
+// (virtual account or "pay with bank") should actually bill for. Without
+// this, a payer who underpaid and comes back to top up the difference
+// would be charged the full totalDue again instead of just what's left.
+function outstandingKobo(payer: { totalDue: unknown; amountPaid: unknown }): number {
+  const outstanding = Math.max(0, Number(payer.totalDue) - Number(payer.amountPaid));
+  return Math.round(outstanding * 100);
+}
 
 const router = Router();
 
@@ -57,11 +67,12 @@ router.post('/:basketId/payers/:payerId/virtual-account', asyncHandler(async (re
 
   const payer = await findPayerById(req.params.basketId, req.params.payerId);
   if (!payer) return res.status(404).json({ error: 'Payer not found on this basket' });
+  if (payer.status === 'paid') return res.status(409).json({ error: 'This payer has already paid' });
 
   const account = await createVirtualAccount({
     basketId: basket.id,
     payerId: payer.id,
-    amountKobo: Math.round(Number(payer.totalDue) * 100),
+    amountKobo: outstandingKobo(payer),
   });
 
   await setPayerVirtualAccount(payer.id, account);
@@ -97,7 +108,7 @@ router.post('/:basketId/payers/:payerId/charge-bank', asyncHandler(async (req, r
     payerId: payer.id,
     bankCode,
     accountNumber,
-    amountKobo: Math.round(Number(payer.totalDue) * 100),
+    amountKobo: outstandingKobo(payer),
   });
   res.json(result);
 }));
@@ -115,5 +126,41 @@ router.post('/:basketId/payers/:payerId/charge-bank/submit-otp', asyncHandler(as
   const result = await submitChargeOtp({ reference, otp });
   res.json(result);
 }));
+
+// POST /baskets/:basketId/payers/:payerId/refund
+// Phase 1 item 5: manual-refund admin action. Only the basket's own admin
+// can trigger this — a payer or a stranger with the basket's text code (the
+// virtual-account and charge-bank endpoints above are deliberately
+// unauthenticated so any payer can pay) must not be able to reverse a
+// payment.
+router.post(
+  '/:basketId/payers/:payerId/refund',
+  requireAuth,
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    const basket = await findBasketById(req.params.basketId);
+    if (!basket) return res.status(404).json({ error: 'Basket not found' });
+    if (basket.adminId !== req.userId) {
+      return res.status(403).json({ error: 'Only this basket\'s organizer can issue a refund' });
+    }
+
+    const payer = await findPayerById(req.params.basketId, req.params.payerId);
+    if (!payer) return res.status(404).json({ error: 'Payer not found on this basket' });
+    if (Number(payer.amountPaid) <= 0) {
+      return res.status(409).json({ error: 'This payer has not paid anything to refund' });
+    }
+
+    // Reset SplitIt's own records first — refundPayerPayment also hands
+    // back the Paystack reference to refund against, found from the
+    // payer's own payment history rather than trusting anything in the
+    // request body.
+    const { amountRefunded, paystackReference } = await refundPayerPayment(req.params.basketId, req.params.payerId);
+    const result = await refundPayment({
+      paystackReference,
+      amountKobo: Math.round(amountRefunded * 100),
+    });
+
+    res.json({ amountRefunded, ...result });
+  })
+);
 
 export default router;

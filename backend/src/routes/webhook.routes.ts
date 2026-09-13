@@ -12,12 +12,15 @@
 // "unique constraint violation" and is treated as already-handled, which
 // works identically whether it's the same process retrying or a second
 // instance behind a load balancer.
+//
+// The actual event → payer/basket update logic lives in
+// services/paymentEvent.service.ts now (Phase 1 item 3), shared with
+// jobs/reconciliation.job.ts so a webhook Paystack never delivers and a
+// webhook that arrives here go through identical processing.
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { Prisma } from '@prisma/client';
-import { prisma } from '../lib/prisma';
-import { findBasketById, markPayerPaidAndRefreshBasket } from '../services/store';
+import { processChargeSuccess } from '../services/paymentEvent.service';
 import { PaystackChargeSuccessEvent } from '../types';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
@@ -31,10 +34,6 @@ function isValidPaystackSignature(rawBody: Buffer, signatureHeader: string | und
   const a = Buffer.from(hash);
   const b = Buffer.from(signatureHeader);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-function isUniqueConstraintError(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
 
 // POST /webhooks/paystack
@@ -55,74 +54,20 @@ router.post('/paystack', async (req: Request, res: Response) => {
   }
 
   // Ack immediately — Paystack expects a fast 200. Everything after this is
-  // best-effort bookkeeping; the Phase 1 reconciliation job (polling
-  // charge.success from Paystack directly) is the real safety net if any
-  // of this fails after the ack.
+  // best-effort bookkeeping; the reconciliation job is the real safety net
+  // if any of this fails after the ack.
   res.status(200).json({ received: true });
 
-  if (event.event !== 'charge.success') return;
-
-  const { reference, metadata } = event.data;
-
-  // Everything below runs after the response is already sent, so there's no
-  // res to error out to — a rejected promise here would otherwise become an
-  // unhandled rejection and crash the whole process (this is what happened
-  // to auth.routes.ts). Contain it: log and move on, same as the
-  // known-unroutable-event branches below.
+  // Runs after the response is already sent, so there's no res to error out
+  // to — a rejected promise here would otherwise become an unhandled
+  // rejection and crash the whole process (this is what happened to
+  // auth.routes.ts before Phase 0's asyncHandler fix). processChargeSuccess
+  // itself never throws, but this still guards against a genuinely
+  // unexpected failure (e.g. the DB connection itself is down).
   try {
-    const basketId = metadata?.basketId;
-    const payerId = metadata?.payerId;
-    if (!basketId || !payerId) {
-      logger.warn({ reference }, 'charge.success missing basketId/payerId metadata, ignoring');
-      return;
-    }
-
-    const basket = await findBasketById(basketId);
-    const payer = basket?.payers.find((p) => p.id === payerId);
-    if (!basket || !payer) {
-      logger.warn({ reference, basketId, payerId }, 'charge.success references unknown basket/payer');
-      return;
-    }
-
-    const amountPaidNaira = event.data.amount / 100;
-    const underpaid = amountPaidNaira < Number(payer.totalDue);
-
-    try {
-      // The unique constraint on paystackReference IS the idempotency check —
-      // no separate "have we seen this before" read-then-write race.
-      await prisma.paymentEvent.create({
-        data: {
-          id: `pevt_${reference}`,
-          paystackReference: reference,
-          amountKobo: event.data.amount,
-          status: underpaid ? 'underpaid' : 'applied',
-          rawPayload: event as unknown as Prisma.InputJsonValue,
-          basketId,
-          payerId,
-        },
-      });
-    } catch (err) {
-      if (isUniqueConstraintError(err)) {
-        logger.info({ reference }, 'duplicate webhook delivery, already processed');
-        return;
-      }
-      logger.error({ err, reference }, 'failed to record payment event');
-      return;
-    }
-
-    if (underpaid) {
-      // Underpayment — leave the payer pending. Phase 1 item 4 needs a real
-      // policy here (partial credit / refund / "top up the difference"); for
-      // now this is recorded (status: 'underpaid') for reconciliation instead
-      // of silently vanishing into the logs like the old code did.
-      logger.warn({ reference, basketId, payerId, amountPaidNaira, totalDue: payer.totalDue }, 'underpayment recorded');
-      return;
-    }
-
-    await markPayerPaidAndRefreshBasket(basketId, payerId);
-    logger.info({ reference, basketId, payerId, amountPaidNaira }, 'payer settled');
+    await processChargeSuccess(event);
   } catch (err) {
-    logger.error({ err, reference }, 'unhandled error processing charge.success after ack');
+    logger.error({ err, reference: event?.data?.reference }, 'unhandled error processing charge.success after ack');
   }
 });
 

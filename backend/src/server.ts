@@ -15,6 +15,7 @@ import basketRoutes from './routes/basket.routes';
 import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
 import { logger } from './lib/logger';
+import { startReconciliationJob } from './jobs/reconciliation.job';
 
 const app = express();
 
@@ -67,6 +68,7 @@ if (!env.isTest) {
   app.listen(env.PORT, () => {
     logger.info(`SplitIt!! backend listening on http://localhost:${env.PORT}`);
   });
+  startReconciliationJob();
 }
 
 export default app;

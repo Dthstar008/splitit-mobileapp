@@ -94,6 +94,11 @@ export function computeSplitDistribution(
       shareAmount: rawShare,
       feeAmount: fee.feeAmount,
       totalDue: fee.totalAmount,
+      // Client-side preview only, before the basket is ever saved — nothing
+      // has been paid yet, so this mirrors what the backend would compute
+      // for a brand-new payer (amountPaid 0, amountOutstanding = totalDue).
+      amountPaid: 0,
+      amountOutstanding: fee.totalAmount,
       status: 'pending',
     };
   });

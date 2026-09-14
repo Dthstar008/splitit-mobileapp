@@ -22,7 +22,7 @@ jest.mock('../src/services/store', () => {
   return {
     ...actual,
     findBasketById: jest.fn(),
-    markPayerPaidAndRefreshBasket: jest.fn(),
+    recordPayerPayment: jest.fn(),
   };
 });
 
@@ -90,8 +90,13 @@ describe('POST /webhooks/paystack — charge.success processing', () => {
       id: 'bskt_1',
       payers: [{ id: 'payer_1', totalDue: 10.15 }],
     } as never);
+    mockedStore.recordPayerPayment.mockResolvedValueOnce({
+      amountPaid: 10.15,
+      amountOutstanding: 0,
+      status: 'paid',
+      isOverpaid: false,
+    });
     mockedPaymentEventCreate.mockResolvedValueOnce({});
-    mockedStore.markPayerPaidAndRefreshBasket.mockResolvedValueOnce(undefined);
 
     const body = chargeSuccessPayload({ amount: 1015 }); // 10.15 Naira, matches totalDue exactly
     const res = await request(app)
@@ -104,10 +109,10 @@ describe('POST /webhooks/paystack — charge.success processing', () => {
     expect(res.body).toEqual({ received: true });
 
     await tick();
+    expect(mockedStore.recordPayerPayment).toHaveBeenCalledWith('bskt_1', 'payer_1', 10.15);
     expect(mockedPaymentEventCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'applied' }) })
     );
-    expect(mockedStore.markPayerPaidAndRefreshBasket).toHaveBeenCalledWith('bskt_1', 'payer_1');
   });
 
   it('records an underpayment without marking the payer paid', async () => {
@@ -115,6 +120,12 @@ describe('POST /webhooks/paystack — charge.success processing', () => {
       id: 'bskt_1',
       payers: [{ id: 'payer_1', totalDue: 50.0 }],
     } as never);
+    mockedStore.recordPayerPayment.mockResolvedValueOnce({
+      amountPaid: 10,
+      amountOutstanding: 40,
+      status: 'underpaid',
+      isOverpaid: false,
+    });
     mockedPaymentEventCreate.mockResolvedValueOnce({});
 
     const body = chargeSuccessPayload({ amount: 1000 }); // 10 Naira, less than the 50 due
@@ -129,21 +140,26 @@ describe('POST /webhooks/paystack — charge.success processing', () => {
     expect(mockedPaymentEventCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'underpaid' }) })
     );
-    expect(mockedStore.markPayerPaidAndRefreshBasket).not.toHaveBeenCalled();
   });
 
-  it('treats a duplicate delivery (unique constraint violation) as already-handled, not an error', async () => {
+  it('treats a duplicate delivery (unique constraint violation) as already-handled, not an error — and reverts the double-count', async () => {
     mockedStore.findBasketById.mockResolvedValueOnce({
       id: 'bskt_1',
       payers: [{ id: 'payer_1', totalDue: 10.15 }],
     } as never);
+    mockedStore.recordPayerPayment.mockResolvedValue({
+      amountPaid: 10.15,
+      amountOutstanding: 0,
+      status: 'paid',
+      isOverpaid: false,
+    });
     const { Prisma } = jest.requireActual('@prisma/client');
     mockedPaymentEventCreate.mockRejectedValueOnce(
       new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'x' })
     );
     const infoSpy = jest.spyOn(logger, 'info');
 
-    const body = chargeSuccessPayload({ reference: 'ref_dupe' });
+    const body = chargeSuccessPayload({ reference: 'ref_dupe', amount: 1015 });
     const res = await request(app)
       .post('/webhooks/paystack')
       .set('Content-Type', 'application/json')
@@ -154,9 +170,13 @@ describe('POST /webhooks/paystack — charge.success processing', () => {
     await tick();
     expect(infoSpy).toHaveBeenCalledWith(
       expect.objectContaining({ reference: 'ref_dupe' }),
-      'duplicate webhook delivery, already processed'
+      expect.stringContaining('duplicate charge.success delivery')
     );
-    expect(mockedStore.markPayerPaidAndRefreshBasket).not.toHaveBeenCalled();
+    // Applied once forward (10.15), then reverted (-10.15) once the
+    // duplicate insert failed — leaves the payer exactly where the first,
+    // successful delivery of this reference left them.
+    expect(mockedStore.recordPayerPayment).toHaveBeenNthCalledWith(1, 'bskt_1', 'payer_1', 10.15);
+    expect(mockedStore.recordPayerPayment).toHaveBeenNthCalledWith(2, 'bskt_1', 'payer_1', -10.15);
     infoSpy.mockRestore();
   });
 

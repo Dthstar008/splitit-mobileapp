@@ -131,7 +131,10 @@ export default function AddPayersStep() {
           onChangeText={setName}
         />
         <PressableScale style={styles.addBtn} onPress={handleAdd}>
-          <UserPlus size={20} color="#fff" />
+          {/* addBtn's fill is theme.colors.primary — a light, high-luminance
+              green — so the icon needs the same dark textInverse tone every
+              other primary-button label uses, not white (fails contrast). */}
+          <UserPlus size={20} color={styles.finalizeBtnText.color as string} />
         </PressableScale>
       </View>
       <TextInput

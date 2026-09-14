@@ -31,8 +31,8 @@ const mockedStore = store as jest.Mocked<typeof store>;
 const mockedPayment = paymentService as jest.Mocked<typeof paymentService>;
 
 const fakeBasket = { id: 'bskt_1', payers: [] };
-const pendingPayer = { id: 'payer_1', basketId: 'bskt_1', totalDue: 10.15, status: 'pending' };
-const paidPayer = { id: 'payer_2', basketId: 'bskt_1', totalDue: 10.15, status: 'paid' };
+const pendingPayer = { id: 'payer_1', basketId: 'bskt_1', totalDue: 10.15, amountPaid: 0, status: 'pending' };
+const paidPayer = { id: 'payer_2', basketId: 'bskt_1', totalDue: 10.15, amountPaid: 10.15, status: 'paid' };
 
 describe('GET /payments/banks', () => {
   it('200s with the bank list', async () => {

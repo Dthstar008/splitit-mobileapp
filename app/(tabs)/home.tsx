@@ -146,6 +146,7 @@ const useStyles = createStyles((theme) =>
     },
     foundPayerName: { color: theme.colors.text, fontSize: 13, fontFamily: theme.font.bodyMedium },
     foundPayerAmount: { color: theme.colors.primaryDark, fontSize: 13, fontFamily: theme.font.bodySemiBold },
+    underpaidText: { color: theme.colors.secondary, fontSize: 11, marginTop: 2, fontFamily: theme.font.bodyMedium },
     payBtn: {
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
@@ -282,12 +283,17 @@ export default function HomeScreen() {
                     <View>
                       <Text style={styles.foundPayerName}>{p.name}</Text>
                       <Text style={styles.foundPayerAmount}>₦{p.totalDue.toLocaleString()}</Text>
+                      {p.status === 'underpaid' && (
+                        <Text style={styles.underpaidText}>
+                          ₦{p.amountPaid.toLocaleString()} paid · ₦{p.amountOutstanding.toLocaleString()} left
+                        </Text>
+                      )}
                     </View>
                     {p.status === 'paid' ? (
                       <Text style={styles.paidPillText}>Paid ✓</Text>
                     ) : (
                       <PressableScale style={styles.payBtn} onPress={() => setPayingPayer(p)}>
-                        <Text style={styles.payBtnText}>Pay</Text>
+                        <Text style={styles.payBtnText}>{p.status === 'underpaid' ? 'Top Up' : 'Pay'}</Text>
                       </PressableScale>
                     )}
                   </View>
@@ -337,7 +343,10 @@ export default function HomeScreen() {
       )}
 
       <PressableScale style={styles.fab} onPress={openSplitEngine} scaleTo={0.95}>
-        <Plus size={18} color="#fff" />
+        {/* fab's fill is theme.colors.primary — light, high-luminance green
+            — so this needs textInverse's dark tone, not white, same fix as
+            AddPayersStep's addBtn icon. */}
+        <Plus size={18} color={styles.fabText.color as string} />
         <Text style={styles.fabText}>Create Food Basket Split</Text>
       </PressableScale>
 

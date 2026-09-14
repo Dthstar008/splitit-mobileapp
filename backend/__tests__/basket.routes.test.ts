@@ -109,7 +109,7 @@ describe('GET /baskets/code/:textCode', () => {
 });
 
 describe('POST /baskets/:basketId/payers/:payerId/virtual-account', () => {
-  const fakePayer = { id: 'payer_1', basketId: 'bskt_abc123', totalDue: 1000 as unknown as never };
+  const fakePayer = { id: 'payer_1', basketId: 'bskt_abc123', totalDue: 1000 as unknown as never, amountPaid: 0 };
 
   it('404s when the basket does not exist', async () => {
     mockedStore.findBasketById.mockResolvedValueOnce(null);

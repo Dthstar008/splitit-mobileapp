@@ -21,7 +21,8 @@ export interface BasketItem {
   cost: number;
 }
 
-export type PayerStatus = 'pending' | 'paid';
+// Mirrors backend/src/types/index.ts's PayerDTO.
+export type PayerStatus = 'pending' | 'underpaid' | 'paid' | 'refunded';
 
 export interface Payer {
   id: string;
@@ -30,6 +31,8 @@ export interface Payer {
   shareAmount: number; // base share before convenience fee
   feeAmount: number; // 1.5% convenience fee on their share
   totalDue: number; // shareAmount + feeAmount
+  amountPaid: number; // cumulative amount actually received so far
+  amountOutstanding: number; // totalDue - amountPaid, floored at 0 — what a new charge should bill for
   status: PayerStatus;
 }
 

@@ -26,6 +26,8 @@ import { X, Search, CheckCircle2, XCircle, ArrowLeft } from 'lucide-react-native
 import { createStyles } from '../../theme/ThemeContext';
 import * as api from '../../services/api';
 import { BankOption, Basket, Payer } from '../../types';
+import GlassCard from '../ui/GlassCard';
+import PressableScale from '../ui/PressableScale';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
@@ -34,6 +36,9 @@ const useStyles = createStyles((theme) =>
       backgroundColor: theme.colors.background,
       borderTopLeftRadius: theme.radius.xl,
       borderTopRightRadius: theme.radius.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.glassBorder,
+      borderBottomWidth: 0,
       maxHeight: '85%',
       minHeight: '50%',
     },
@@ -46,7 +51,7 @@ const useStyles = createStyles((theme) =>
       paddingBottom: theme.spacing(3),
     },
     headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    headerTitle: { fontSize: 17, fontWeight: '800', color: theme.colors.text },
+    headerTitle: { fontSize: 17, color: theme.colors.text, fontFamily: theme.font.headingBold },
     iconBtn: {
       width: 32,
       height: 32,
@@ -55,15 +60,15 @@ const useStyles = createStyles((theme) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // The one "money moment" surface in this flow — what you're paying and
+    // to whom — so it's the glass+glow treatment, same as the QR card.
     payerSummary: {
       marginHorizontal: theme.spacing(5),
       marginBottom: theme.spacing(3),
       padding: theme.spacing(4),
-      backgroundColor: theme.colors.primaryLight,
-      borderRadius: theme.radius.md,
     },
-    payerSummaryName: { color: theme.colors.primaryDark, fontWeight: '700', fontSize: 14 },
-    payerSummaryAmount: { color: theme.colors.primaryDark, fontWeight: '800', fontSize: 18, marginTop: 2 },
+    payerSummaryName: { color: theme.colors.primary, fontSize: 14, fontFamily: theme.font.bodySemiBold },
+    payerSummaryAmount: { color: theme.colors.text, fontSize: 20, marginTop: 2, fontFamily: theme.font.headingBold },
     body: { paddingHorizontal: theme.spacing(5), paddingBottom: theme.spacing(6) },
     searchRow: {
       flexDirection: 'row',
@@ -75,15 +80,21 @@ const useStyles = createStyles((theme) =>
       paddingHorizontal: theme.spacing(4),
       marginBottom: theme.spacing(3),
     },
-    searchInput: { flex: 1, paddingVertical: theme.spacing(3), marginLeft: theme.spacing(2), color: theme.colors.text },
+    searchInput: {
+      flex: 1,
+      paddingVertical: theme.spacing(3),
+      marginLeft: theme.spacing(2),
+      color: theme.colors.text,
+      fontFamily: theme.font.body,
+    },
     bankRow: {
       paddingVertical: theme.spacing(3.5),
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
     },
-    bankName: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+    bankName: { color: theme.colors.text, fontSize: 14, fontFamily: theme.font.bodySemiBold },
     centerState: { alignItems: 'center', justifyContent: 'center', paddingVertical: theme.spacing(10) },
-    mutedText: { color: theme.colors.textMuted, marginTop: theme.spacing(2), textAlign: 'center' },
+    mutedText: { color: theme.colors.textMuted, marginTop: theme.spacing(2), textAlign: 'center', fontFamily: theme.font.body },
     selectedBankCard: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -95,7 +106,7 @@ const useStyles = createStyles((theme) =>
       padding: theme.spacing(4),
       marginBottom: theme.spacing(4),
     },
-    label: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing(2) },
+    label: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing(2), fontFamily: theme.font.bodySemiBold },
     input: {
       backgroundColor: theme.colors.surfaceAlt,
       borderRadius: theme.radius.md,
@@ -106,8 +117,9 @@ const useStyles = createStyles((theme) =>
       color: theme.colors.text,
       fontSize: 16,
       letterSpacing: 1,
+      fontFamily: theme.font.bodyMedium,
     },
-    changeLink: { color: theme.colors.primaryDark, fontWeight: '700', fontSize: 13 },
+    changeLink: { color: theme.colors.primary, fontSize: 13, fontFamily: theme.font.bodyBold },
     primaryBtn: {
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
@@ -116,11 +128,11 @@ const useStyles = createStyles((theme) =>
       marginTop: theme.spacing(5),
     },
     primaryBtnDisabled: { opacity: 0.5 },
-    primaryBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 15 },
-    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: theme.spacing(2) },
+    primaryBtnText: { color: theme.colors.textInverse, fontSize: 15, fontFamily: theme.font.bodyBold },
+    errorText: { color: theme.colors.danger, fontSize: 12, marginTop: theme.spacing(2), fontFamily: theme.font.bodyMedium },
     resultIconWrap: { alignItems: 'center', marginTop: theme.spacing(6) },
-    resultTitle: { fontSize: 17, fontWeight: '800', color: theme.colors.text, textAlign: 'center', marginTop: theme.spacing(4) },
-    resultMessage: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(2), paddingHorizontal: theme.spacing(4) },
+    resultTitle: { fontSize: 17, color: theme.colors.text, textAlign: 'center', marginTop: theme.spacing(4), fontFamily: theme.font.headingBold },
+    resultMessage: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(2), paddingHorizontal: theme.spacing(4), fontFamily: theme.font.body },
   })
 );
 
@@ -269,10 +281,18 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
             </Pressable>
           </View>
 
-          <View style={styles.payerSummary}>
-            <Text style={styles.payerSummaryName}>Paying for {payer.name}</Text>
-            <Text style={styles.payerSummaryAmount}>₦{payer.totalDue.toLocaleString()}</Text>
-          </View>
+          <GlassCard style={styles.payerSummary} glow radius={16}>
+            <Text style={styles.payerSummaryName}>
+              {payer.status === 'underpaid' ? `Topping up for ${payer.name}` : `Paying for ${payer.name}`}
+            </Text>
+            {/* amountOutstanding, not totalDue — a payer topping up after a
+                partial payment should be charged what's actually left, not
+                billed the full amount again. */}
+            <Text style={styles.payerSummaryAmount}>₦{payer.amountOutstanding.toLocaleString()}</Text>
+            {payer.status === 'underpaid' && (
+              <Text style={styles.mutedText}>₦{payer.amountPaid.toLocaleString()} already paid toward ₦{payer.totalDue.toLocaleString()}</Text>
+            )}
+          </GlassCard>
 
           <View style={styles.body}>
             {step === 'bank' && (
@@ -334,13 +354,13 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
                 />
                 {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-                <Pressable
+                <PressableScale
                   style={[styles.primaryBtn, isSubmitting && styles.primaryBtnDisabled]}
                   onPress={handleSubmitAccount}
                   disabled={isSubmitting}
                 >
                   <Text style={styles.primaryBtnText}>{isSubmitting ? 'Starting…' : 'Continue'}</Text>
-                </Pressable>
+                </PressableScale>
               </>
             )}
 
@@ -362,13 +382,13 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
                 />
                 {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-                <Pressable
+                <PressableScale
                   style={[styles.primaryBtn, isSubmitting && styles.primaryBtnDisabled]}
                   onPress={handleSubmitOtp}
                   disabled={isSubmitting}
                 >
                   <Text style={styles.primaryBtnText}>{isSubmitting ? 'Verifying…' : 'Verify & Pay'}</Text>
-                </Pressable>
+                </PressableScale>
               </>
             )}
 
@@ -384,9 +404,9 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
                   <Text style={styles.resultMessage}>{resultMessage}</Text>
                 </View>
 
-                <Pressable style={styles.primaryBtn} onPress={onClose}>
+                <PressableScale style={styles.primaryBtn} onPress={onClose}>
                   <Text style={styles.primaryBtnText}>Done</Text>
-                </Pressable>
+                </PressableScale>
               </>
             )}
           </View>

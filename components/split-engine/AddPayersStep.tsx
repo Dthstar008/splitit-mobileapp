@@ -51,6 +51,9 @@ const useStyles = createStyles((theme) =>
     payerId: { color: theme.colors.textMuted, fontSize: 12, fontFamily: theme.font.body },
     payerAmount: { color: theme.colors.primaryDark, fontSize: 14, fontFamily: theme.font.bodyBold },
     payerFee: { color: theme.colors.secondaryDark, fontSize: 11, marginTop: 2, fontFamily: theme.font.bodyMedium },
+    organizerCard: { borderColor: theme.colors.primary, borderStyle: 'dashed' },
+    organizerBadge: { color: theme.colors.primary, fontSize: 11, marginTop: 2, fontFamily: theme.font.bodyBold },
+    paidText: { color: theme.colors.success, fontSize: 13, fontFamily: theme.font.bodyBold },
     summaryCard: {
       backgroundColor: theme.colors.primaryLight,
       borderRadius: theme.radius.md,
@@ -106,8 +109,16 @@ export default function AddPayersStep() {
     setSplitId('');
   };
 
+  // The organizer is always one of the payers too — added here purely for
+  // an accurate preview (basket.routes.ts adds them again, independently,
+  // server-side when the basket is actually saved; this array is never
+  // sent as-is). They never pay through the app — see services/api.ts's
+  // computeSplitDistribution for why their entry previews as already paid.
+  const previewHandles = user
+    ? [...draft.payerHandles, { name: user.fullName, splitId: user.splitId, isCreator: true }]
+    : draft.payerHandles;
   const preview = draft.totalMarketCost > 0 && draft.payerHandles.length > 0
-    ? computeSplitDistribution(draft.totalMarketCost, draft.payerHandles)
+    ? computeSplitDistribution(draft.totalMarketCost, previewHandles)
     : [];
 
   const handleFinalize = async () => {
@@ -150,21 +161,38 @@ export default function AddPayersStep() {
         data={preview}
         keyExtractor={(p, idx) => `${p.name}_${idx}`}
         scrollEnabled={false}
-        renderItem={({ item, index }) => (
-          <View style={styles.payerCard}>
-            <View>
-              <Text style={styles.payerName}>{item.name}</Text>
-              {item.splitId ? <Text style={styles.payerId}>{item.splitId}</Text> : null}
+        renderItem={({ item, index }) => {
+          // Only ever true for the organizer's own preview row (appended
+          // last, above) — every payer a person actually types in starts
+          // 'pending'. Not removable: you can't take yourself off your own
+          // basket, so no Trash2 button for this row.
+          const isOrganizer = item.status === 'paid';
+          return (
+            <View style={[styles.payerCard, isOrganizer && styles.organizerCard]}>
+              <View>
+                <Text style={styles.payerName}>{item.name}</Text>
+                {isOrganizer ? (
+                  <Text style={styles.organizerBadge}>You (organizer) — covers this share directly</Text>
+                ) : item.splitId ? (
+                  <Text style={styles.payerId}>{item.splitId}</Text>
+                ) : null}
+              </View>
+              {isOrganizer ? (
+                <Text style={styles.paidText}>Paid ✓</Text>
+              ) : (
+                <>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.payerAmount}>₦{item.totalDue.toLocaleString()}</Text>
+                    <Text style={styles.payerFee}>incl. ₦{item.feeAmount.toLocaleString()} fee</Text>
+                  </View>
+                  <Pressable onPress={() => removePayer(index)} style={{ marginLeft: 10 }}>
+                    <Trash2 size={16} color={styles.payerId.color as string} />
+                  </Pressable>
+                </>
+              )}
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.payerAmount}>₦{item.totalDue.toLocaleString()}</Text>
-              <Text style={styles.payerFee}>incl. ₦{item.feeAmount.toLocaleString()} fee</Text>
-            </View>
-            <Pressable onPress={() => removePayer(index)} style={{ marginLeft: 10 }}>
-              <Trash2 size={16} color={styles.payerId.color as string} />
-            </Pressable>
-          </View>
-        )}
+          );
+        }}
       />
 
       {preview.length > 0 && (

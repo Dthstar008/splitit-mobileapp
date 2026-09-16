@@ -2,7 +2,7 @@
 // Orchestrates STEP A -> B -> C -> D inside a bottom-sheet-style modal
 // launched from the Home Tab's floating "Create Food Basket Split" button.
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Animated } from 'react-native';
 import { X } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
@@ -59,7 +59,8 @@ const STEP_ORDER = ['create', 'payers', 'qr', 'dispatch'];
 // it reads as advancement, not a state flip.
 function StepDot({ done }: { done: boolean }) {
   const styles = useStyles();
-  const fill = useRef(new Animated.Value(done ? 1 : 0)).current;
+  // Lazy useState, not useRef().current — see PressableScale.tsx for why.
+  const [fill] = useState(() => new Animated.Value(done ? 1 : 0));
 
   useEffect(() => {
     Animated.timing(fill, { toValue: done ? 1 : 0, duration: 280, useNativeDriver: false }).start();

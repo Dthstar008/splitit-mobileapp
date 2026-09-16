@@ -7,12 +7,23 @@
 
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
-import { BankOption, ChargeBankInput, ChargeResult, RefundResult } from '../types';
+import { BankOption, ChargeBankInput, ChargeResult, PayoutWalletInput, RefundResult } from '../types';
 
 interface CreateVirtualAccountInput {
   basketId: string;
   payerId: string;
   amountKobo: number;
+  // Split settlement for the transfer-in flow. Unlike chargeBankAccount's
+  // exact-kobo transaction_charge below, Paystack's Dedicated Virtual
+  // Account product only supports a *percentage*-based split via the
+  // subaccount's own configured percentage_charge (set once, at subaccount
+  // creation — see createOrUpdateSubaccount) — there's no per-transaction
+  // flat override for DVAs the way there is for direct charges. That
+  // percentage is derived from CONVENIENCE_FEE_RATE, so it matches this
+  // app's actual fee rate, but it can drift from a specific payer's exact
+  // computed feeAmount by a kobo or two on rounding — an honest limitation
+  // of the DVA product, not a bug here.
+  subaccountCode?: string;
 }
 
 interface VirtualAccountResult {
@@ -49,6 +60,7 @@ export async function createVirtualAccount(input: CreateVirtualAccountInput): Pr
       customer: input.payerId,
       preferred_bank: 'wema-bank',
       metadata: { basketId: input.basketId, payerId: input.payerId },
+      ...(input.subaccountCode ? { subaccount: input.subaccountCode } : {}),
     }),
   });
 
@@ -69,6 +81,65 @@ export async function createVirtualAccount(input: CreateVirtualAccountInput): Pr
   };
 }
 
+// Split settlement, prerequisite step: a Paystack Subaccount is what
+// createVirtualAccount (via `subaccount`) and chargeBankAccount (via
+// `subaccount` + `transaction_charge`) actually split payment into — a
+// basket admin's payout wallet does nothing for real money movement until
+// this has run once for them. Called from user.routes.ts whenever an admin
+// saves/updates their payout wallet; Paystack's Update Subaccount endpoint
+// is used on repeat calls so a corrected bank detail doesn't fragment into
+// a second, orphaned subaccount.
+//
+// percentage_charge is set from this app's own fixed convenience fee rate
+// (env.CONVENIENCE_FEE_RATE) converted from "% of share" to "% of total
+// charged" — see the CreateVirtualAccountInput comment above for why this
+// is the DVA product's inherent precision ceiling, not a bug: at rate r,
+// totalDue = share * (1+r), so fee / totalDue = r / (1+r), not r itself.
+//
+// Unlike chargeBankAccount, there's no per-transaction subsidy possible
+// here (Paystack's DVA API has no transaction_charge equivalent — see
+// CreateVirtualAccountInput). The rate is set high enough (5.75%, not
+// 1.5% — .env.example) that it comfortably covers this too: Paystack's DVA
+// fee schedule is actually smaller than the direct-charge one this rate
+// was sized against (1% capped ₦300, vs. 1.5%+₦100 capped ₦2,000), so the
+// margin here is even more generous than on the charge-bank flow.
+export async function createOrUpdateSubaccount(
+  input: PayoutWalletInput & { existingSubaccountCode?: string }
+): Promise<{ subaccountCode: string }> {
+  if (!env.PAYSTACK_SECRET_KEY) {
+    logger.debug({ accountNumber: input.accountNumber }, 'creating mock subaccount');
+    return { subaccountCode: input.existingSubaccountCode ?? `ACCT_mock_${Date.now()}` };
+  }
+
+  const percentageCharge = (env.CONVENIENCE_FEE_RATE / (1 + env.CONVENIENCE_FEE_RATE)) * 100;
+  const isUpdate = Boolean(input.existingSubaccountCode);
+  const url = isUpdate
+    ? `https://api.paystack.co/subaccount/${input.existingSubaccountCode}`
+    : 'https://api.paystack.co/subaccount';
+
+  const response = await fetch(url, {
+    method: isUpdate ? 'PUT' : 'POST',
+    headers: {
+      Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      business_name: input.accountName,
+      settlement_bank: input.bankCode,
+      account_number: input.accountNumber,
+      percentage_charge: percentageCharge,
+    }),
+  });
+
+  const json = (await response.json()) as { message?: string; data?: { subaccount_code: string } };
+  if (!response.ok || !json.data) {
+    logger.error({ accountNumber: input.accountNumber, err: json?.message }, 'Paystack subaccount create/update failed');
+    throw new Error(json?.message ?? 'Failed to set up payout account with Paystack');
+  }
+
+  return { subaccountCode: json.data.subaccount_code };
+}
+
 // "Pay with Bank" — the payer picks their own bank/account instead of
 // transferring into a generated virtual account. Same mock/live split as
 // createVirtualAccount above, gated on PAYSTACK_SECRET_KEY.
@@ -81,6 +152,21 @@ export async function createVirtualAccount(input: CreateVirtualAccountInput): Pr
 // charge.success) stays the single place a payer is marked paid, whether
 // they paid via virtual account or via this flow. A client-reported
 // "success" is not proof of payment on its own.
+
+// Paystack's real, published local-transaction fee schedule (paystack.com
+// /pricing): 1.5% of the amount actually charged, plus a flat ₦100 waived
+// under ₦2,500, capped at ₦2,000 total. Confirmed exactly against two real
+// live-mode test charges (transaction/verify's `fees` field) before this
+// was written — not a guess. This is deducted from the SUBACCOUNT's side
+// of a split charge regardless of the `bearer` param sent (see
+// chargeBankAccount below), so it's what platformFeeKobo in
+// basket.routes.ts subtracts from SplitIt's own cut to keep the basket
+// organizer's payout whole.
+export function estimatePaystackChargeFeeKobo(totalKobo: number): number {
+  const flat = totalKobo >= 250_000 ? 10_000 : 0;
+  const fee = Math.round(totalKobo * 0.015) + flat;
+  return Math.min(fee, 200_000);
+}
 
 // A short, well-known subset of Nigerian banks with their real (public,
 // Paystack-documented, not secret) bank codes — used only as the mock-mode
@@ -137,6 +223,23 @@ export async function chargeBankAccount(input: ChargeBankInput): Promise<ChargeR
   // customer email, which the Payer model doesn't carry (payers don't need
   // SplitIt accounts). A real production version needs to collect or
   // synthesize one properly before this goes live.
+  //
+  // Split settlement: transaction_charge is the EXACT kobo amount that
+  // goes to SplitIt's main account regardless of the subaccount's own
+  // percentage_charge — "override the split configuration for a single
+  // split payment" per Paystack's docs — so unlike the DVA flow above,
+  // this is bit-exact against whatever feeAmount was actually computed for
+  // this payer, not an approximation from a stored percentage.
+  //
+  // bearer: 'account' is sent, but confirmed via a real live-mode test
+  // (checking transaction/verify's fees_split afterward, at two very
+  // different amounts) that Paystack's /charge endpoint does NOT honor it
+  // the way /transaction/initialize's docs describe — the subaccount ends
+  // up bearing Paystack's own processing fee either way (fees_split.params
+  // came back "bearer":"subaccount" both times, regardless of what was
+  // sent). Kept here as accurate intent and in case that changes, but the
+  // basket admin's actual payout is share minus Paystack's own transfer
+  // fee, not the clean shareAmount the comment above might otherwise imply.
   const response = await fetch('https://api.paystack.co/charge', {
     method: 'POST',
     headers: {
@@ -148,6 +251,9 @@ export async function chargeBankAccount(input: ChargeBankInput): Promise<ChargeR
       amount: input.amountKobo,
       bank: { code: input.bankCode, account_number: input.accountNumber },
       metadata: { basketId: input.basketId, payerId: input.payerId },
+      ...(input.subaccountCode
+        ? { subaccount: input.subaccountCode, transaction_charge: input.platformFeeKobo, bearer: 'account' }
+        : {}),
     }),
   });
 
@@ -230,6 +336,42 @@ export async function submitChargeOtp(input: { reference: string; otp: string })
   if (!response.ok || !json.data) {
     logger.error({ reference: input.reference, err: json?.message }, 'Paystack OTP submission failed');
     return { status: 'failed', reference: input.reference, message: json?.message ?? 'OTP submission failed' };
+  }
+
+  return { status: json.data.status as ChargeResult['status'], reference: json.data.reference };
+}
+
+// A handful of banks (Zenith among them — Paystack's own documented test
+// account uses it: account 0000000000, birthday 2008-09-15) require
+// date-of-birth as an additional auth factor, via this separate endpoint
+// rather than submit_otp. Same shape and same caveat as submitChargeOtp
+// about not being the thing that marks a payer paid.
+export async function submitChargeBirthday(input: { reference: string; birthday: string }): Promise<ChargeResult> {
+  if (!env.PAYSTACK_SECRET_KEY) {
+    if (input.birthday === '2008-09-15') {
+      logger.debug({ reference: input.reference }, 'mock birthday accepted');
+      return { status: 'success', reference: input.reference };
+    }
+    return {
+      status: 'failed',
+      reference: input.reference,
+      message: 'Incorrect birthday (mock mode uses 2008-09-15, Paystack\'s documented test date).',
+    };
+  }
+
+  const response = await fetch('https://api.paystack.co/charge/submit_birthday', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ birthday: input.birthday, reference: input.reference }),
+  });
+
+  const json = (await response.json()) as { message?: string; data?: { status: string; reference: string } };
+  if (!response.ok || !json.data) {
+    logger.error({ reference: input.reference, err: json?.message }, 'Paystack birthday submission failed');
+    return { status: 'failed', reference: input.reference, message: json?.message ?? 'Birthday submission failed' };
   }
 
   return { status: json.data.status as ChargeResult['status'], reference: json.data.reference };

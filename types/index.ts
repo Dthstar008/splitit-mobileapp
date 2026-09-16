@@ -7,10 +7,15 @@ export interface User {
   phone: string;
   splitId: string; // e.g. "@olamide_split"
   payoutWallet?: PayoutWallet;
+  // True once a Paystack Subaccount exists for this user — baskets they
+  // organize actually split settlement instead of the full amount landing
+  // in SplitIt's own balance with no way to pay it back out.
+  splitActive: boolean;
 }
 
 export interface PayoutWallet {
   bankName: string;
+  bankCode: string;
   accountNumber: string;
   accountName: string;
 }
@@ -29,7 +34,7 @@ export interface Payer {
   name: string;
   splitId?: string;
   shareAmount: number; // base share before convenience fee
-  feeAmount: number; // 1.5% convenience fee on their share
+  feeAmount: number; // 5.75% convenience fee on their share — see services/api.ts's FEE_RATE for why
   totalDue: number; // shareAmount + feeAmount
   amountPaid: number; // cumulative amount actually received so far
   amountOutstanding: number; // totalDue - amountPaid, floored at 0 — what a new charge should bill for
@@ -66,7 +71,10 @@ export interface BankOption {
   slug: string;
 }
 
-export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'failed' | 'pending';
+// send_birthday: a handful of banks (Zenith among them — Paystack's own
+// documented test account) require date-of-birth as an additional auth
+// factor, via a separate submit-birthday step alongside (or instead of) OTP.
+export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'send_birthday' | 'failed' | 'pending';
 
 export interface ChargeResult {
   status: ChargeStatus;
@@ -76,7 +84,7 @@ export interface ChargeResult {
 
 export interface ConvenienceFeeBreakdown {
   baseAmount: number;
-  feeRate: number; // 0.015
+  feeRate: number; // 0.0575
   feeAmount: number;
   totalAmount: number;
 }

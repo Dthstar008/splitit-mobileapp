@@ -13,6 +13,10 @@ import { env } from '../config/env';
 export interface PayerHandle {
   name: string;
   splitId?: string;
+  // The basket organizer, added automatically by basket.routes.ts (never
+  // something a client sends) — see computeSplitDistribution for why they
+  // get a distinct outcome from every other handle in this array.
+  isCreator?: boolean;
 }
 
 export interface ComputedPayer {
@@ -21,7 +25,8 @@ export interface ComputedPayer {
   shareAmount: number;
   feeAmount: number;
   totalDue: number;
-  status: 'pending';
+  amountPaid: number;
+  status: 'pending' | 'paid';
 }
 
 export function computeConvenienceFee(baseAmount: number, feeRate: number = env.CONVENIENCE_FEE_RATE) {
@@ -40,13 +45,21 @@ export function computeSplitDistribution(totalCost: number, payerHandles: PayerH
 
   return payerHandles.map((p) => {
     const fee = computeConvenienceFee(rawShare);
+    // The organizer's own slice never goes through Paystack — they'd be
+    // paying into their own payout wallet, which is either a rejected
+    // self-transfer or, at best, a pointless one that still burns the
+    // convenience fee. So their entry starts pre-settled, not pending; the
+    // existing "already paid" guards on the virtual-account and
+    // charge-bank routes (basket.routes.ts) then naturally refuse to ever
+    // charge them, same as anyone else who's already paid.
     return {
       name: p.name,
       splitId: p.splitId,
       shareAmount: rawShare,
       feeAmount: fee.feeAmount,
       totalDue: fee.totalAmount,
-      status: 'pending',
+      amountPaid: p.isCreator ? fee.totalAmount : 0,
+      status: p.isCreator ? 'paid' : 'pending',
     };
   });
 }

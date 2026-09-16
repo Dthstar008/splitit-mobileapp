@@ -1,0 +1,67 @@
+# Phase 0 item 6: CI pipeline. Typecheck, lint, and test on every PR, so a
+# broken build never reaches main.
+#
+# Moved here from backend/.github/workflows/ci.yml — GitHub Actions only
+# discovers workflows under the REPO ROOT's .github/workflows/, so this file
+# sitting inside backend/ meant it never actually ran on GitHub, despite
+# looking like a working CI setup. Also splits Typecheck from Lint (they'd
+# collapsed into the same `tsc --noEmit` call under two names) and adds the
+# frontend, which didn't have a job here at all before.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --ci
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint

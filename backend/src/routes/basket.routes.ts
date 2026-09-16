@@ -5,6 +5,7 @@ import {
   findBasketById,
   findBasketsByAdmin,
   findPayerById,
+  findUserById,
   refundPayerPayment,
   saveNewBasket,
   setPayerVirtualAccount,
@@ -12,7 +13,14 @@ import {
 } from '../services/store';
 import { computeBasket } from '../services/split.service';
 import { requireAuth, AuthedRequest } from '../middleware/auth.middleware';
-import { createVirtualAccount, chargeBankAccount, refundPayment, submitChargeOtp } from '../services/payment.service';
+import {
+  createVirtualAccount,
+  chargeBankAccount,
+  estimatePaystackChargeFeeKobo,
+  refundPayment,
+  submitChargeBirthday,
+  submitChargeOtp,
+} from '../services/payment.service';
 import { asyncHandler } from '../lib/asyncHandler';
 
 // A payer's totalDue minus what they've already paid — what a NEW charge
@@ -22,6 +30,35 @@ import { asyncHandler } from '../lib/asyncHandler';
 function outstandingKobo(payer: { totalDue: unknown; amountPaid: unknown }): number {
   const outstanding = Math.max(0, Number(payer.totalDue) - Number(payer.amountPaid));
   return Math.round(outstanding * 100);
+}
+
+// The platform's slice of THIS specific charge, for split settlement.
+//
+// Two things happen here, not one:
+//   1. Proportional to what's actually being collected right now, not
+//      always the payer's full feeAmount — a top-up after underpayment
+//      only charges part of totalDue, so it should only carry a matching
+//      part of the fee; otherwise a payer topping up a small remainder
+//      would have their whole top-up eaten by a fee sized for the
+//      original full amount.
+//   2. That nominal slice is then reduced by Paystack's own processing
+//      fee for this charge (estimatePaystackChargeFeeKobo) — confirmed via
+//      a real live-mode test that Paystack deducts its own fee from the
+//      SUBACCOUNT's side of a split charge regardless of the `bearer`
+//      param, so without this the basket organizer's payout would be
+//      short by Paystack's cut. CONVENIENCE_FEE_RATE (5.75%, see
+//      .env.example) is deliberately set high enough that this subtraction
+//      practically never needs the floor-at-0 clamp in real use — it's a
+//      safety net for edge cases, not the normal path.
+// Exported for __tests__/basket.routes.test.ts to verify the actual
+// fee-free-payout guarantee directly, not just that it's wired into the
+// route somewhere.
+export function platformFeeKobo(payer: { totalDue: unknown; feeAmount: unknown }, chargeKobo: number): number {
+  const totalDueKobo = Math.round(Number(payer.totalDue) * 100);
+  const feeKobo = Math.round(Number(payer.feeAmount) * 100);
+  if (totalDueKobo <= 0) return 0;
+  const nominalShare = Math.round((feeKobo * chargeKobo) / totalDueKobo);
+  return Math.max(0, nominalShare - estimatePaystackChargeFeeKobo(chargeKobo));
 }
 
 const router = Router();
@@ -34,11 +71,20 @@ router.post('/', requireAuth, asyncHandler<AuthedRequest>(async (req, res) => {
     return res.status(400).json({ error: 'title, totalMarketCost and at least one payer are required' });
   }
 
+  const admin = await findUserById(req.userId!);
+  if (!admin) return res.status(404).json({ error: 'Admin user not found' });
+
+  // The organizer is always one of the payers, splitting the cost evenly
+  // alongside everyone else they listed — added here server-side, not
+  // something the client sends, so there's exactly one place this happens
+  // and no way for a client to spoof someone else's isCreator flag. See
+  // split.service.ts's computeSplitDistribution for why their entry comes
+  // back already marked paid.
   const computed = computeBasket({
     title,
     items: items ?? [],
     totalMarketCost: Number(totalMarketCost),
-    payerHandles,
+    payerHandles: [...payerHandles, { name: admin.fullName, splitId: admin.splitId, isCreator: true }],
     adminId: req.userId!,
   });
 
@@ -73,6 +119,11 @@ router.post('/:basketId/payers/:payerId/virtual-account', asyncHandler(async (re
     basketId: basket.id,
     payerId: payer.id,
     amountKobo: outstandingKobo(payer),
+    // undefined when this basket's admin has no payout wallet set up yet —
+    // createVirtualAccount already handles that (no subaccount param sent,
+    // full amount settles to SplitIt's own balance, same as before this
+    // feature existed) rather than failing the charge outright.
+    subaccountCode: basket.admin.paystackSubaccountCode ?? undefined,
   });
 
   await setPayerVirtualAccount(payer.id, account);
@@ -103,12 +154,16 @@ router.post('/:basketId/payers/:payerId/charge-bank', asyncHandler(async (req, r
   if (!payer) return res.status(404).json({ error: 'Payer not found on this basket' });
   if (payer.status === 'paid') return res.status(409).json({ error: 'This payer has already paid' });
 
+  const chargeKobo = outstandingKobo(payer);
+  const subaccountCode = basket.admin.paystackSubaccountCode ?? undefined;
   const result = await chargeBankAccount({
     basketId: basket.id,
     payerId: payer.id,
     bankCode,
     accountNumber,
-    amountKobo: outstandingKobo(payer),
+    amountKobo: chargeKobo,
+    subaccountCode,
+    platformFeeKobo: subaccountCode ? platformFeeKobo(payer, chargeKobo) : undefined,
   });
   res.json(result);
 }));
@@ -124,6 +179,22 @@ router.post('/:basketId/payers/:payerId/charge-bank/submit-otp', asyncHandler(as
     return res.status(400).json({ error: 'reference and otp are required' });
   }
   const result = await submitChargeOtp({ reference, otp });
+  res.json(result);
+}));
+
+// POST /baskets/:basketId/payers/:payerId/charge-bank/submit-birthday
+// Same shape as submit-otp above, for the subset of banks (Zenith is
+// Paystack's own documented test case) that ask for date-of-birth instead
+// of — or in addition to — an OTP.
+router.post('/:basketId/payers/:payerId/charge-bank/submit-birthday', asyncHandler(async (req, res) => {
+  const { reference, birthday } = req.body ?? {};
+  if (!reference || !birthday) {
+    return res.status(400).json({ error: 'reference and birthday are required' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+    return res.status(400).json({ error: 'birthday must be in YYYY-MM-DD format' });
+  }
+  const result = await submitChargeBirthday({ reference, birthday });
   res.json(result);
 }));
 

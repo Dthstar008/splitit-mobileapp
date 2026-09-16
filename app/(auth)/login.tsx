@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { ArrowLeft, AtSign, Lock } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import PressableScale from '../../components/ui/PressableScale';
 
 const useStyles = createStyles((theme) =>
   StyleSheet.create({
@@ -33,10 +34,10 @@ const useStyles = createStyles((theme) =>
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
-    heading: { fontSize: 26, fontWeight: '800', color: theme.colors.text, marginBottom: theme.spacing(1) },
-    subheading: { fontSize: 14, color: theme.colors.textMuted, marginBottom: theme.spacing(7) },
+    heading: { fontSize: 26, color: theme.colors.text, marginBottom: theme.spacing(1), fontFamily: theme.font.headingBold },
+    subheading: { fontSize: 14, color: theme.colors.textMuted, marginBottom: theme.spacing(7), fontFamily: theme.font.body },
     inputGroup: { marginBottom: theme.spacing(4) },
-    label: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing(2) },
+    label: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing(2), fontFamily: theme.font.bodySemiBold },
     inputRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -52,8 +53,9 @@ const useStyles = createStyles((theme) =>
       marginLeft: theme.spacing(2.5),
       color: theme.colors.text,
       fontSize: 15,
+      fontFamily: theme.font.bodyMedium,
     },
-    errorText: { color: theme.colors.danger, fontSize: 13, marginBottom: theme.spacing(3) },
+    errorText: { color: theme.colors.danger, fontSize: 13, marginBottom: theme.spacing(3), fontFamily: theme.font.bodyMedium },
     primaryBtn: {
       backgroundColor: theme.colors.primary,
       borderRadius: theme.radius.pill,
@@ -62,10 +64,10 @@ const useStyles = createStyles((theme) =>
       marginTop: theme.spacing(3),
     },
     primaryBtnDisabled: { opacity: 0.6 },
-    primaryBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 16 },
+    primaryBtnText: { color: theme.colors.textInverse, fontSize: 16, fontFamily: theme.font.bodyBold },
     switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: theme.spacing(6) },
-    switchText: { color: theme.colors.textMuted },
-    switchLink: { color: theme.colors.primary, fontWeight: '700' },
+    switchText: { color: theme.colors.textMuted, fontFamily: theme.font.body },
+    switchLink: { color: theme.colors.primary, fontFamily: theme.font.bodyBold },
   })
 );
 
@@ -87,9 +89,9 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
-      <Pressable style={styles.backBtn} onPress={() => router.back()}>
+      <PressableScale style={styles.backBtn} onPress={() => router.back()}>
         <ArrowLeft size={20} color={styles.heading.color as string} />
-      </Pressable>
+      </PressableScale>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -130,13 +132,13 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          <Pressable
+          <PressableScale
             style={[styles.primaryBtn, isLoading && styles.primaryBtnDisabled]}
             onPress={handleLogin}
             disabled={isLoading}
           >
             <Text style={styles.primaryBtnText}>{isLoading ? 'Logging in…' : 'Log In'}</Text>
-          </Pressable>
+          </PressableScale>
 
           <View style={styles.switchRow}>
             <Text style={styles.switchText}>New to SplitIt!!? </Text>

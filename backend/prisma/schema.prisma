@@ -28,8 +28,18 @@ model User {
   hashAlgorithm HashAlgorithm @default(BCRYPT)
   splitId       String   @unique
   payoutBankName      String?
+  // Bank CODE, not just the name — required to create/update a Paystack
+  // Subaccount (bank_code param) and previously missing entirely, which
+  // meant the payout wallet could never actually be wired to real money
+  // movement no matter what the UI implied.
+  payoutBankCode      String?
   payoutAccountNumber String?
   payoutAccountName   String?
+  // Set once a Paystack Subaccount exists for this user's payout wallet.
+  // Its presence is what "split payments are active for this admin's
+  // baskets" actually means — see services/payment.service.ts
+  // createOrUpdateSubaccount and services/store.ts updateUserPayoutWallet.
+  paystackSubaccountCode String?
   createdAt     DateTime @default(now())
 
   baskets Basket[]

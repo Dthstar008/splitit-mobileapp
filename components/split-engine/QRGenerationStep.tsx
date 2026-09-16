@@ -3,7 +3,7 @@
 // Uses react-native-qrcode-svg to render the BasketID + payer payload.
 // `npx expo install react-native-qrcode-svg react-native-svg` before running.
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { ArrowRight, Hash } from 'lucide-react-native';
@@ -72,7 +72,8 @@ export default function QRGenerationStep() {
   // A quiet scale+fade confirms that the preceding "Generating…" call
   // actually landed, rather than the card just appearing mid-list like any
   // other static content.
-  const entrance = useRef(new Animated.Value(0)).current;
+  // Lazy useState, not useRef().current — see PressableScale.tsx for why.
+  const [entrance] = useState(() => new Animated.Value(0));
   useEffect(() => {
     entrance.setValue(0);
     Animated.spring(entrance, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 8 }).start();

@@ -16,12 +16,17 @@ jest.mock('../src/services/store', () => {
   };
 });
 
-jest.mock('../src/services/payment.service', () => ({
-  listBanks: jest.fn(),
-  chargeBankAccount: jest.fn(),
-  submitChargeOtp: jest.fn(),
-  createVirtualAccount: jest.fn(),
-}));
+jest.mock('../src/services/payment.service', () => {
+  const actual = jest.requireActual('../src/services/payment.service');
+  return {
+    ...actual, // keep estimatePaystackChargeFeeKobo real — pure and harmless
+    listBanks: jest.fn(),
+    chargeBankAccount: jest.fn(),
+    submitChargeOtp: jest.fn(),
+    submitChargeBirthday: jest.fn(),
+    createVirtualAccount: jest.fn(),
+  };
+});
 
 import app from '../src/server';
 import * as store from '../src/services/store';
@@ -30,9 +35,9 @@ import * as paymentService from '../src/services/payment.service';
 const mockedStore = store as jest.Mocked<typeof store>;
 const mockedPayment = paymentService as jest.Mocked<typeof paymentService>;
 
-const fakeBasket = { id: 'bskt_1', payers: [] };
-const pendingPayer = { id: 'payer_1', basketId: 'bskt_1', totalDue: 10.15, amountPaid: 0, status: 'pending' };
-const paidPayer = { id: 'payer_2', basketId: 'bskt_1', totalDue: 10.15, amountPaid: 10.15, status: 'paid' };
+const fakeBasket = { id: 'bskt_1', payers: [], admin: { paystackSubaccountCode: null } };
+const pendingPayer = { id: 'payer_1', basketId: 'bskt_1', totalDue: 10.15, feeAmount: 0.15, amountPaid: 0, status: 'pending' };
+const paidPayer = { id: 'payer_2', basketId: 'bskt_1', totalDue: 10.15, feeAmount: 0.15, amountPaid: 10.15, status: 'paid' };
 
 describe('GET /payments/banks', () => {
   it('200s with the bank list', async () => {
@@ -129,6 +134,42 @@ describe('POST /baskets/:basketId/payers/:payerId/charge-bank/submit-otp', () =>
     const res = await request(app)
       .post('/baskets/bskt_1/payers/payer_1/charge-bank/submit-otp')
       .send({ reference: 'chg_1', otp: '000000' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('failed');
+  });
+});
+
+describe('POST /baskets/:basketId/payers/:payerId/charge-bank/submit-birthday', () => {
+  it('400s when reference or birthday is missing', async () => {
+    const res = await request(app)
+      .post('/baskets/bskt_1/payers/payer_1/charge-bank/submit-birthday')
+      .send({ birthday: '2008-09-15' });
+    expect(res.status).toBe(400);
+  });
+
+  it('400s when birthday is not YYYY-MM-DD', async () => {
+    const res = await request(app)
+      .post('/baskets/bskt_1/payers/payer_1/charge-bank/submit-birthday')
+      .send({ reference: 'chg_1', birthday: '15-09-2008' });
+    expect(res.status).toBe(400);
+    expect(mockedPayment.submitChargeBirthday).not.toHaveBeenCalled();
+  });
+
+  it('200s with the final charge status on a correct birthday', async () => {
+    mockedPayment.submitChargeBirthday.mockResolvedValueOnce({ status: 'success', reference: 'chg_1' });
+    const res = await request(app)
+      .post('/baskets/bskt_1/payers/payer_1/charge-bank/submit-birthday')
+      .send({ reference: 'chg_1', birthday: '2008-09-15' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'success', reference: 'chg_1' });
+    expect(mockedPayment.submitChargeBirthday).toHaveBeenCalledWith({ reference: 'chg_1', birthday: '2008-09-15' });
+  });
+
+  it('200s with a failed status (not an HTTP error) on a wrong birthday', async () => {
+    mockedPayment.submitChargeBirthday.mockResolvedValueOnce({ status: 'failed', reference: 'chg_1', message: 'Incorrect birthday' });
+    const res = await request(app)
+      .post('/baskets/bskt_1/payers/payer_1/charge-bank/submit-birthday')
+      .send({ reference: 'chg_1', birthday: '2000-01-01' });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('failed');
   });

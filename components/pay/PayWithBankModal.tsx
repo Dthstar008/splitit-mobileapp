@@ -3,11 +3,14 @@
 // text-code search or QR scan (see app/(tabs)/home.tsx). Alternative to the
 // virtual-account transfer-in flow: the payer picks their own bank, enters
 // their account number, and Paystack charges it directly via OTP (or PIN,
-// for the smaller set of banks that use it) instead.
+// or date-of-birth, depending on the bank) instead.
 //
-// Step machine: 'bank' -> 'account' -> 'otp' -> 'result'. The 'otp' step is
-// skipped straight to 'result' if the charge succeeds without one (that's
-// how it behaves for a handful of Paystack-supported banks).
+// Step machine: 'bank' -> 'account' -> ['otp' | 'birthday'] -> 'result'.
+// Which auth step (if any) comes after 'account' isn't fixed — it's
+// whatever Paystack's response says it needs next, and that can chain (an
+// OTP submission can itself come back asking for a birthday, or vice
+// versa), so every submission handler routes its result through the same
+// applyChargeResult below rather than each hardcoding "success or bust".
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -25,7 +28,7 @@ import {
 import { X, Search, CheckCircle2, XCircle, ArrowLeft } from 'lucide-react-native';
 import { createStyles } from '../../theme/ThemeContext';
 import * as api from '../../services/api';
-import { BankOption, Basket, Payer } from '../../types';
+import { BankOption, Basket, ChargeResult, Payer } from '../../types';
 import GlassCard from '../ui/GlassCard';
 import PressableScale from '../ui/PressableScale';
 
@@ -136,7 +139,7 @@ const useStyles = createStyles((theme) =>
   })
 );
 
-type Step = 'bank' | 'account' | 'otp' | 'result';
+type Step = 'bank' | 'account' | 'otp' | 'birthday' | 'result';
 
 interface Props {
   visible: boolean;
@@ -155,6 +158,7 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
   const [selectedBank, setSelectedBank] = useState<BankOption | null>(null);
   const [accountNumber, setAccountNumber] = useState('');
   const [otp, setOtp] = useState('');
+  const [birthday, setBirthday] = useState(''); // YYYY-MM-DD
   const [reference, setReference] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,14 +166,22 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
   const [resultMessage, setResultMessage] = useState('');
 
   // Reset to a clean state every time this is opened for a (possibly
-  // different) payer, rather than carrying over stale selections.
+  // different) payer, rather than carrying over stale selections. Adjusting
+  // state in response to `visible`/`payer.id` changing, not mirroring them
+  // — the documented case where an effect is the right tool
+  // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-
+  // when-a-prop-changes). A `key`-based remount (the rule's suggested
+  // alternative for "reset everything") would need restructuring how the
+  // parent screen mounts this modal — out of scope for a lint pass.
   useEffect(() => {
     if (!visible) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStep('bank');
     setBankSearch('');
     setSelectedBank(null);
     setAccountNumber('');
     setOtp('');
+    setBirthday('');
     setReference(null);
     setError(null);
     setResultOk(false);
@@ -194,6 +206,37 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
     setStep('account');
   };
 
+  // Routes a ChargeResult to whatever comes next — a second auth factor
+  // (which can differ from whichever one you just submitted; Paystack's
+  // multi-factor banks can ask for OTP then birthday, or the reverse),
+  // success, or failure. Used after the initial charge AND after each
+  // factor submission, so a chained second factor is handled the same way
+  // as the first instead of each call site guessing.
+  const applyChargeResult = (result: ChargeResult, fallbackErrorMessage: string) => {
+    setReference(result.reference ?? reference);
+    if (result.status === 'send_otp' || result.status === 'send_pin') {
+      setStep('otp');
+    } else if (result.status === 'send_birthday') {
+      setStep('birthday');
+    } else if (result.status === 'success') {
+      setResultOk(true);
+      setResultMessage('Payment submitted. It may take a moment to reflect on the basket.');
+      setStep('result');
+    } else {
+      // A failure on the FIRST step (initiating the charge) has nowhere
+      // established yet to show inline, so it goes to the result screen;
+      // a failure on a later factor (wrong OTP/birthday) stays on that
+      // step so the payer can just retry the one field, not start over.
+      if (step === 'account') {
+        setResultOk(false);
+        setResultMessage(result.message ?? fallbackErrorMessage);
+        setStep('result');
+      } else {
+        setError(result.message ?? fallbackErrorMessage);
+      }
+    }
+  };
+
   const handleSubmitAccount = async () => {
     if (!selectedBank) return;
     if (accountNumber.trim().length < 10) {
@@ -207,20 +250,7 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
         bankCode: selectedBank.code,
         accountNumber: accountNumber.trim(),
       });
-
-      if (result.status === 'send_otp' || result.status === 'send_pin') {
-        setReference(result.reference ?? null);
-        setStep('otp');
-      } else if (result.status === 'success') {
-        setReference(result.reference ?? null);
-        setResultOk(true);
-        setResultMessage('Payment submitted. It may take a moment to reflect on the basket.');
-        setStep('result');
-      } else {
-        setResultOk(false);
-        setResultMessage(result.message ?? 'Could not charge that account. Please try again.');
-        setStep('result');
-      }
+      applyChargeResult(result, 'Could not charge that account. Please try again.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start the charge');
     } finally {
@@ -238,15 +268,27 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
     setError(null);
     try {
       const result = await api.submitChargeOtp(basket.id, payer.id, { reference, otp: otp.trim() });
-      if (result.status === 'success') {
-        setResultOk(true);
-        setResultMessage('Payment submitted. It may take a moment to reflect on the basket.');
-        setStep('result');
-      } else {
-        setError(result.message ?? 'That code was not accepted. Try again.');
-      }
+      applyChargeResult(result, 'That code was not accepted. Try again.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not verify the code');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitBirthday = async () => {
+    if (!reference) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+      setError('Enter your date of birth as YYYY-MM-DD.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.submitChargeBirthday(basket.id, payer.id, { reference, birthday });
+      applyChargeResult(result, 'That date was not accepted. Try again.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not verify your date of birth');
     } finally {
       setIsSubmitting(false);
     }
@@ -256,6 +298,7 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
     bank: 'Choose your bank',
     account: 'Enter account number',
     otp: 'Enter verification code',
+    birthday: 'Confirm date of birth',
     result: resultOk ? 'Payment submitted' : 'Payment failed',
   };
 
@@ -265,10 +308,10 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              {(step === 'account' || step === 'otp') && (
+              {(step === 'account' || step === 'otp' || step === 'birthday') && (
                 <Pressable
                   style={styles.iconBtn}
-                  onPress={() => setStep(step === 'otp' ? 'account' : 'bank')}
+                  onPress={() => setStep(step === 'account' ? 'bank' : 'account')}
                   hitSlop={8}
                 >
                   <ArrowLeft size={16} color={styles.headerTitle.color as string} />
@@ -320,7 +363,13 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
                 {!banksLoading && !banksError && (
                   <FlatList
                     data={filteredBanks}
-                    keyExtractor={(b) => b.code}
+                    // Not just b.code — Paystack's live bank list can list
+                    // more than one institution under the same settlement
+                    // code (grouped fintech products), so code alone isn't
+                    // guaranteed unique. slug is more distinct but the index
+                    // is what actually guarantees no collision within this
+                    // render regardless of what Paystack returns.
+                    keyExtractor={(b, idx) => `${b.code}_${b.slug}_${idx}`}
                     scrollEnabled={false}
                     ListEmptyComponent={<Text style={styles.mutedText}>No banks match that search.</Text>}
                     renderItem={({ item }) => (
@@ -385,6 +434,34 @@ export default function PayWithBankModal({ visible, basket, payer, onClose }: Pr
                 <PressableScale
                   style={[styles.primaryBtn, isSubmitting && styles.primaryBtnDisabled]}
                   onPress={handleSubmitOtp}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.primaryBtnText}>{isSubmitting ? 'Verifying…' : 'Verify & Pay'}</Text>
+                </PressableScale>
+              </>
+            )}
+
+            {step === 'birthday' && (
+              <>
+                <Text style={styles.mutedText}>
+                  {selectedBank?.name ?? 'Your bank'} needs your date of birth to authorize this payment.
+                </Text>
+                <View style={{ height: 12 }} />
+                <Text style={styles.label}>Date of birth (YYYY-MM-DD)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="2008-09-15"
+                  placeholderTextColor={styles.mutedText.color as string}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={10}
+                  value={birthday}
+                  onChangeText={(v) => setBirthday(v.replace(/[^0-9-]/g, ''))}
+                />
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                <PressableScale
+                  style={[styles.primaryBtn, isSubmitting && styles.primaryBtnDisabled]}
+                  onPress={handleSubmitBirthday}
                   disabled={isSubmitting}
                 >
                   <Text style={styles.primaryBtnText}>{isSubmitting ? 'Verifying…' : 'Verify & Pay'}</Text>

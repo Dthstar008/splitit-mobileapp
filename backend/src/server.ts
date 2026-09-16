@@ -13,6 +13,7 @@ import * as Sentry from '@sentry/node';
 import authRoutes from './routes/auth.routes';
 import basketRoutes from './routes/basket.routes';
 import paymentRoutes from './routes/payment.routes';
+import userRoutes from './routes/user.routes';
 import webhookRoutes from './routes/webhook.routes';
 import { logger } from './lib/logger';
 import { startReconciliationJob } from './jobs/reconciliation.job';
@@ -42,6 +43,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'splitit-bac
 app.use('/auth', authRoutes);
 app.use('/baskets', basketRoutes);
 app.use('/payments', paymentRoutes);
+app.use('/users', userRoutes);
 
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));
 

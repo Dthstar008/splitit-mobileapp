@@ -8,7 +8,7 @@
 import { Basket as PrismaBasket, BasketItem, Payer as PrismaPayer, Prisma, User as PrismaUser } from '@prisma/client';
 import { nanoid } from 'nanoid';
 import { prisma } from '../lib/prisma';
-import { BasketDTO, PayerDTO, SafeUser } from '../types';
+import { BasketDTO, PayerDTO, PayoutWalletInput, SafeUser } from '../types';
 import { ComputedBasket } from './split.service';
 
 // ---- Users -----------------------------------------------------------
@@ -20,15 +20,40 @@ export function toSafeUser(user: PrismaUser): SafeUser {
     email: user.email,
     phone: user.phone,
     splitId: user.splitId,
+    splitActive: Boolean(user.paystackSubaccountCode),
   };
-  if (user.payoutBankName && user.payoutAccountNumber && user.payoutAccountName) {
+  if (user.payoutBankName && user.payoutBankCode && user.payoutAccountNumber && user.payoutAccountName) {
     safe.payoutWallet = {
       bankName: user.payoutBankName,
+      bankCode: user.payoutBankCode,
       accountNumber: user.payoutAccountNumber,
       accountName: user.payoutAccountName,
     };
   }
   return safe;
+}
+
+// Persists the payout wallet AND the Paystack subaccount code created from
+// it in one call — the two are meant to move together. Called from
+// user.routes.ts right after payment.service.ts's createOrUpdateSubaccount
+// returns, so a saved wallet always has a real subaccount behind it (never
+// a "saved" bank detail with nothing actually wired to Paystack, which is
+// exactly the state the old Profile screen left things in).
+export function updateUserPayoutWallet(
+  userId: string,
+  wallet: PayoutWalletInput,
+  subaccountCode: string
+): Promise<PrismaUser> {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      payoutBankName: wallet.bankName,
+      payoutBankCode: wallet.bankCode,
+      payoutAccountNumber: wallet.accountNumber,
+      payoutAccountName: wallet.accountName,
+      paystackSubaccountCode: subaccountCode,
+    },
+  });
 }
 
 export function findUserByEmailOrPhone(identifier: string): Promise<PrismaUser | null> {
@@ -58,9 +83,16 @@ export function updateUserPassword(userId: string, passwordHash: string): Promis
 
 // ---- Baskets -----------------------------------------------------------
 
-type BasketWithRelations = PrismaBasket & { items: BasketItem[]; payers: PrismaPayer[] };
+type BasketWithRelations = PrismaBasket & {
+  items: BasketItem[];
+  payers: PrismaPayer[];
+  // Only the one field routes actually need for split settlement — not the
+  // full admin record (no reason to pull passwordHash etc. along for every
+  // basket lookup).
+  admin: { paystackSubaccountCode: string | null };
+};
 
-const basketInclude = { items: true, payers: true } as const;
+const basketInclude = { items: true, payers: true, admin: { select: { paystackSubaccountCode: true } } } as const;
 
 export function toBasketDTO(basket: BasketWithRelations): BasketDTO {
   return {
@@ -139,6 +171,11 @@ export async function saveNewBasket(computed: ComputedBasket): Promise<BasketWit
           shareAmount: p.shareAmount,
           feeAmount: p.feeAmount,
           totalDue: p.totalDue,
+          // Without this, the organizer's pre-paid entry (status: 'paid'
+          // from split.service.ts) would default to amountPaid: 0 via the
+          // schema, leaving amountOutstanding computed as their full
+          // totalDue on a payer already marked paid — a contradiction.
+          amountPaid: p.amountPaid,
           status: p.status,
         })),
       },

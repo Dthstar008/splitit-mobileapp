@@ -106,6 +106,14 @@ export function startReconciliationJob(): void {
   if (intervalHandle) return; // already running — startup should only call this once, but guard anyway
 
   logger.info({ intervalMinutes: POLL_INTERVAL_MS / 60000 }, 'reconciliation job started');
+  // Run one pass immediately on startup, not just after the first interval
+  // elapses. Without this, a charge that completes and is then immediately
+  // followed by a restart (common in dev — nodemon restarts on every file
+  // save) can dodge every scheduled fire indefinitely, since each restart
+  // resets this timer from zero rather than resuming a countdown. An
+  // immediate pass also means "the server was down for a while" recovers
+  // the moment it comes back, which is the whole point of this job.
+  runReconciliationPass().catch((err) => logger.error({ err }, 'reconciliation pass failed'));
   intervalHandle = setInterval(() => {
     runReconciliationPass().catch((err) => logger.error({ err }, 'reconciliation pass failed'));
   }, POLL_INTERVAL_MS);

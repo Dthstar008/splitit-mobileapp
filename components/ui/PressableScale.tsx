@@ -14,7 +14,7 @@
 // split) — the transform has to live on the same element the caller's
 // layout styles are already on.
 
-import React, { useRef } from 'react';
+import React, { useState } from 'react';
 import { Animated, Pressable, PressableProps, ViewStyle, StyleProp } from 'react-native';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -25,7 +25,13 @@ interface PressableScaleProps extends PressableProps {
 }
 
 export default function PressableScale({ style, scaleTo = 0.97, disabled, ...props }: PressableScaleProps) {
-  const scale = useRef(new Animated.Value(1)).current;
+  // A lazy useState initializer, not useRef().current — reading a ref's
+  // .current during render (even just once, for a stable instance) is
+  // flagged by the newer react-hooks/refs rule (React Compiler-era), since
+  // it's technically unsafe under concurrent rendering. useState's
+  // initializer runs once and returns a plain value, which is safe to read
+  // in render — same "create once, keep stable" result, no ref involved.
+  const [scale] = useState(() => new Animated.Value(1));
 
   const animateTo = (value: number) =>
     Animated.spring(scale, { toValue: value, useNativeDriver: true, speed: 40, bounciness: 6 }).start();

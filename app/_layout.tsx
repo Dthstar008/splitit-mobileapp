@@ -4,8 +4,12 @@
 
 // Imported first, before anything else in the app, so Sentry (if configured
 // — see lib/sentry.ts, no-op without EXPO_PUBLIC_SENTRY_DSN) can catch
-// errors from everything that follows.
-import '../lib/sentry';
+// errors from everything that follows. A module only evaluates once no
+// matter how many import statements reference it, so this single import
+// (placed here, before every other import) both runs Sentry.init() first
+// and gives the rest of the file isSentryEnabled — no need for a second,
+// side-effect-only import of the same module further down.
+import { isSentryEnabled } from '../lib/sentry';
 
 import React from 'react';
 import { View } from 'react-native';
@@ -24,7 +28,6 @@ import { ThemeProvider } from '../theme/ThemeContext';
 import { palette } from '../theme/colors';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SplitProvider } from '../context/SplitContext';
-import { isSentryEnabled } from '../lib/sentry';
 
 function RootNavigator() {
   const { user } = useAuth();

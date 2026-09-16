@@ -20,7 +20,7 @@ export default function TabsLayout() {
           paddingBottom: 10,
           paddingTop: 8,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontFamily: theme.font.bodySemiBold },
       }}
     >
       <Tabs.Screen

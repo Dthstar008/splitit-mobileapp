@@ -4,7 +4,7 @@
 // list doesn't flash "No active baskets yet" for a beat before data arrives,
 // and the layout doesn't jump once it does.
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Animated, StyleSheet } from 'react-native';
 import { createStyles, useTheme } from '../../theme/ThemeContext';
 
@@ -26,7 +26,8 @@ const useStyles = createStyles((theme) =>
 export default function BasketCardSkeleton() {
   const styles = useStyles();
   const theme = useTheme();
-  const pulse = useRef(new Animated.Value(0.4)).current;
+  // Lazy useState, not useRef().current — see PressableScale.tsx for why.
+  const [pulse] = useState(() => new Animated.Value(0.4));
 
   useEffect(() => {
     const loop = Animated.loop(

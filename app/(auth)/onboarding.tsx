@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ShoppingBasket, ScanLine, Landmark } from 'lucide-react-native';
 import { useOnboardingTheme, createStyles } from '../../theme/ThemeContext';
+import PressableScale from '../../components/ui/PressableScale';
 
 const { width } = Dimensions.get('window');
 
@@ -69,16 +70,17 @@ const useStyles = createStyles((theme) =>
     },
     title: {
       fontSize: 24,
-      fontWeight: '800',
       color: theme.colors.text,
       textAlign: 'center',
       marginBottom: theme.spacing(3),
+      fontFamily: theme.font.headingBold,
     },
     body: {
       fontSize: 15,
       lineHeight: 22,
       color: theme.colors.textMuted,
       textAlign: 'center',
+      fontFamily: theme.font.body,
     },
     dotsRow: {
       flexDirection: 'row',
@@ -110,11 +112,11 @@ const useStyles = createStyles((theme) =>
     },
     primaryBtnText: {
       color: theme.colors.textInverse,
-      fontWeight: '700',
       fontSize: 16,
+      fontFamily: theme.font.bodyBold,
     },
     skipBtn: { alignItems: 'center', paddingVertical: theme.spacing(2) },
-    skipBtnText: { color: theme.colors.textMuted, fontWeight: '600' },
+    skipBtnText: { color: theme.colors.textMuted, fontFamily: theme.font.bodySemiBold },
   })
 );
 
@@ -169,11 +171,11 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Pressable style={styles.primaryBtn} onPress={goNext}>
+        <PressableScale style={styles.primaryBtn} onPress={goNext}>
           <Text style={styles.primaryBtnText}>
             {index === SLIDES.length - 1 ? 'Get Started' : 'Next'}
           </Text>
-        </Pressable>
+        </PressableScale>
         {index < SLIDES.length - 1 && (
           <Pressable style={styles.skipBtn} onPress={() => router.push('/(auth)/signup')}>
             <Text style={styles.skipBtnText}>Skip</Text>

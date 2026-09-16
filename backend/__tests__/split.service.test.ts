@@ -59,6 +59,26 @@ describe('computeSplitDistribution', () => {
   it('marks every computed payer as pending', () => {
     const payers = computeSplitDistribution(2000, [{ name: 'A' }, { name: 'B' }]);
     expect(payers.every((p) => p.status === 'pending')).toBe(true);
+    expect(payers.every((p) => p.amountPaid === 0)).toBe(true);
+  });
+
+  it('pre-settles the organizer\'s own entry as already paid, in full, from creation', () => {
+    // The organizer never pays into their own payout wallet — see
+    // basket.routes.ts's POST / handler for why this is added server-side,
+    // never something a client sends directly.
+    const payers = computeSplitDistribution(3000, [
+      { name: 'Ada' },
+      { name: 'Bola' },
+      { name: 'Temi Admin', splitId: '@temi_split', isCreator: true },
+    ]);
+    const organizer = payers.find((p) => p.name === 'Temi Admin')!;
+    expect(organizer.status).toBe('paid');
+    expect(organizer.amountPaid).toBe(organizer.totalDue);
+    // Same equal split as everyone else, not a free ride — 3000/3 = 1000.
+    expect(organizer.shareAmount).toBe(1000);
+
+    const others = payers.filter((p) => p.name !== 'Temi Admin');
+    expect(others.every((p) => p.status === 'pending' && p.amountPaid === 0)).toBe(true);
   });
 
   it('rounds an uneven split to 2 decimal places per payer', () => {

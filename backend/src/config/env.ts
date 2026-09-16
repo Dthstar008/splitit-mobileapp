@@ -64,6 +64,9 @@ export const env = {
   JWT_SECRET: required('JWT_SECRET'),
   PAYSTACK_SECRET_KEY: paystackKey('PAYSTACK_SECRET_KEY'),
   PAYSTACK_WEBHOOK_SECRET: paystackKey('PAYSTACK_WEBHOOK_SECRET'),
-  CONVENIENCE_FEE_RATE: Number(optional('CONVENIENCE_FEE_RATE', '0.015')),
+  // 5.75%, not 1.5% — see .env.example for why (short version: 1.5% alone
+  // can't cover Paystack's own processing fee on a charge without leaving
+  // the basket organizer's payout short).
+  CONVENIENCE_FEE_RATE: Number(optional('CONVENIENCE_FEE_RATE', '0.0575')),
   SENTRY_DSN: process.env.SENTRY_DSN || undefined,
 };

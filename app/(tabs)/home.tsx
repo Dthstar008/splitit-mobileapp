@@ -323,7 +323,7 @@ export default function HomeScreen() {
             <View style={styles.emptyState}>
               <ShoppingBasket size={40} color={styles.emptyText.color as string} />
               <Text style={styles.emptyText}>
-                No active baskets yet. Tap "Create Food Basket Split" below to start your first group buy.
+                No active baskets yet. Tap &quot;Create Food Basket Split&quot; below to start your first group buy.
               </Text>
             </View>
           }

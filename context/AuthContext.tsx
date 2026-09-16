@@ -15,6 +15,10 @@ interface AuthContextValue {
   login: (input: { identifier: string; password: string }) => Promise<void>;
   logout: () => void;
   clearError: () => void;
+  // For screens that update the user server-side themselves (Profile's
+  // payout wallet save) and just need the local copy to reflect the fresh
+  // response, rather than every such update needing its own context method.
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -63,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearError = useCallback(() => setError(null), []);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, error, signup, login, logout, clearError }}>
+    <AuthContext.Provider value={{ user, token, isLoading, error, signup, login, logout, clearError, updateUser: setUser }}>
       {children}
     </AuthContext.Provider>
   );

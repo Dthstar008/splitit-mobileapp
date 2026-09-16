@@ -10,7 +10,20 @@ export interface SafeUser {
   email: string;
   phone: string;
   splitId: string;
-  payoutWallet?: { bankName: string; accountNumber: string; accountName: string };
+  payoutWallet?: { bankName: string; bankCode: string; accountNumber: string; accountName: string };
+  // True once a Paystack Subaccount exists for this user — i.e. baskets
+  // they organize will actually split settlement (their share automatic,
+  // ours automatic) instead of the full amount landing in SplitIt's own
+  // balance with no way to pay it out.
+  splitActive: boolean;
+}
+
+// POST /users/me/payout-wallet body.
+export interface PayoutWalletInput {
+  bankName: string;
+  bankCode: string;
+  accountNumber: string;
+  accountName: string;
 }
 
 export interface BasketItemInput {
@@ -67,9 +80,19 @@ export interface ChargeBankInput {
   bankCode: string;
   accountNumber: string;
   amountKobo: number;
+  // Split settlement — both present or both absent. When present, this
+  // charge settles shareKobo (amountKobo - platformFeeKobo) straight to the
+  // basket admin's Paystack Subaccount, platformFeeKobo to SplitIt, in one
+  // step (Paystack's transaction_charge override) rather than collecting
+  // the full amount and transferring the admin's share out separately.
+  subaccountCode?: string;
+  platformFeeKobo?: number;
 }
 
-export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'failed' | 'pending';
+// send_birthday: a handful of banks (Zenith among them — see Paystack's
+// documented test account) require date-of-birth as an additional auth
+// factor alongside OTP, via a separate /charge/submit_birthday call.
+export type ChargeStatus = 'success' | 'send_otp' | 'send_pin' | 'send_birthday' | 'failed' | 'pending';
 
 export interface ChargeResult {
   status: ChargeStatus;

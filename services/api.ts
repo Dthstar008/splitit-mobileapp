@@ -8,11 +8,18 @@ import {
   ChargeResult,
   ConvenienceFeeBreakdown,
   Payer,
+  PayoutWallet,
   User,
   VirtualAccount,
 } from '../types';
 
-const FEE_RATE = 0.015; // 1.5% convenience fee
+// 5.75%, not 1.5% — must stay in lockstep with backend/src/config/env.ts's
+// CONVENIENCE_FEE_RATE default (see that file's comment for the full
+// reasoning). This is only a client-side PREVIEW during basket creation —
+// the backend's own split.service.ts computes the authoritative amounts
+// once the basket is actually saved — but a mismatched preview here would
+// show the organizer a fee that doesn't match what actually gets charged.
+const FEE_RATE = 0.0575;
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -75,18 +82,23 @@ export function computeConvenienceFee(baseAmount: number): ConvenienceFeeBreakdo
   };
 }
 
-// Splits totalCost evenly across payer names/splitIds, applying the 1.5%
+// Splits totalCost evenly across payer names/splitIds, applying the
 // convenience fee on top of each individual share (not the whole basket),
 // so SplitIt!! earns the fee per-transaction as each payer settles.
 export function computeSplitDistribution(
   totalCost: number,
-  payerHandles: { name: string; splitId?: string }[]
+  payerHandles: { name: string; splitId?: string; isCreator?: boolean }[]
 ): Payer[] {
   if (payerHandles.length === 0) return [];
   const rawShare = Math.round((totalCost / payerHandles.length) * 100) / 100;
 
   return payerHandles.map((p) => {
     const fee = computeConvenienceFee(rawShare);
+    // Mirrors backend/src/services/split.service.ts's computeSplitDistribution
+    // exactly — the organizer's own entry (added by AddPayersStep.tsx for
+    // this preview, and separately by basket.routes.ts when the basket is
+    // actually saved) previews as already paid, same reasoning as there:
+    // they'd otherwise be paying into their own payout wallet.
     return {
       id: randomId('payer', 5),
       name: p.name,
@@ -94,12 +106,9 @@ export function computeSplitDistribution(
       shareAmount: rawShare,
       feeAmount: fee.feeAmount,
       totalDue: fee.totalAmount,
-      // Client-side preview only, before the basket is ever saved — nothing
-      // has been paid yet, so this mirrors what the backend would compute
-      // for a brand-new payer (amountPaid 0, amountOutstanding = totalDue).
-      amountPaid: 0,
-      amountOutstanding: fee.totalAmount,
-      status: 'pending',
+      amountPaid: p.isCreator ? fee.totalAmount : 0,
+      amountOutstanding: p.isCreator ? 0 : fee.totalAmount,
+      status: p.isCreator ? 'paid' : 'pending',
     };
   });
 }
@@ -170,6 +179,30 @@ export async function submitChargeOtp(
     `/baskets/${encodeURIComponent(basketId)}/payers/${encodeURIComponent(payerId)}/charge-bank/submit-otp`,
     { method: 'POST', body: JSON.stringify(input) }
   );
+}
+
+export async function submitChargeBirthday(
+  basketId: string,
+  payerId: string,
+  input: { reference: string; birthday: string } // birthday as YYYY-MM-DD
+): Promise<ChargeResult> {
+  return request(
+    `/baskets/${encodeURIComponent(basketId)}/payers/${encodeURIComponent(payerId)}/charge-bank/submit-birthday`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+// ---------- PAYOUT WALLET (Paystack Subaccounts split) ----------
+
+// Creates/updates the admin's Paystack Subaccount and persists it in one
+// call — replaces the old Profile screen behavior of just showing a local
+// "Saved" alert with nothing sent to the backend at all.
+export async function savePayoutWallet(token: string, input: PayoutWallet): Promise<User> {
+  return request('/users/me/payout-wallet', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(input),
+  });
 }
 
 // ---------- MULTI-CHANNEL DISPATCH ----------

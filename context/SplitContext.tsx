@@ -68,7 +68,14 @@ export const SplitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   React.useEffect(() => {
+    // Adjusting state in response to `token` changing (login/logout), not
+    // mirroring/deriving from it — the documented case where an effect is
+    // the right tool (https://react.dev/learn/you-might-not-need-an-effect
+    // #adjusting-some-state-when-a-prop-changes), as opposed to the
+    // discouraged "reset everything" pattern the lint rule is really aimed
+    // at, which that same doc says to solve with a `key` remount instead.
     if (!token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBaskets([]);
       setIsLoadingBaskets(false);
       return;
